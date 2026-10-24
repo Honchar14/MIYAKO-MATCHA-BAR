@@ -1,0 +1,291 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Прелоадер MIYAKO</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Badeen+Display&family=Inter:wght@600&family=Noto+Sans+JP:wght@700&display=swap">
+<style>
+/* Layout: a fixed 1920x1080 stage (coordinates straight from the Figma frame) scaled to fit, with a slim review toolbar above it. */
+:root {
+  --ink: #070606;        /* loader background */
+  --night: #000000;      /* hero base */
+  --cream: #F6F3EA;
+  --matcha: #C5E45A;
+  --matcha-deep: #242A24;
+  --cream-40: rgba(246, 243, 234, .4);
+  --matcha-40: rgba(197, 228, 90, .4);
+  --ui: #9A9A8E;         /* toolbar text */
+  --ui-line: #2A2A26;
+  --f-display: "Badeen Display", "Arial Black", Impact, sans-serif;
+  --f-grot: "Helvetica Neue", Helvetica, Arial, "Noto Sans JP", sans-serif;
+  --f-inter: "Inter", "Helvetica Neue", Arial, sans-serif;
+  --f-jp: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+p { margin: 0; }
+body {
+  background: var(--ink); color: var(--cream); font-family: var(--f-grot);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* ---------- review toolbar ---------- */
+.bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+  padding-block: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--ui-line);
+  font: 700 12px/1 var(--f-grot); letter-spacing: .04em; text-transform: uppercase; color: var(--ui);
+}
+.bar b { color: var(--cream); font-weight: 700; }
+.bar .grow { flex: 1 1 240px; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bar input[type=range] { flex: 1; min-width: 0; accent-color: var(--matcha); }
+.bar button, .bar select {
+  font: inherit; color: var(--cream); background: transparent; letter-spacing: inherit;
+  border: 1px solid var(--ui-line); border-radius: 50px; padding: 7px 14px; cursor: pointer;
+}
+.bar button:hover, .bar select:hover { border-color: var(--matcha); color: var(--matcha); }
+.bar :focus-visible { outline: 2px solid var(--matcha); outline-offset: 2px; }
+#phase { color: var(--matcha); min-width: 15ch; }
+.time { font-variant-numeric: tabular-nums; min-width: 6ch; text-align: right; }
+
+/* ---------- stage ---------- */
+.viewport {
+  flex: 1; min-height: 0; display: grid; place-items: center;
+  padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.frame { position: relative; overflow: hidden; clip-path: inset(0); background: var(--ink); }
+.stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; }
+.abs { position: absolute; }
+.trim { text-box: trim-both cap alphabetic; }
+
+/* loader */
+.loader { position: absolute; inset: 0; background: var(--ink); }
+.grain { position: absolute; inset: -40px; opacity: .09; pointer-events: none; mix-blend-mode: screen; }
+.logo-word { font: 400 188px/1 var(--f-display); color: var(--cream); text-transform: uppercase; white-space: nowrap; text-shadow: 4px 4px 8px rgba(0,0,0,.4); }
+.tag { font: 700 22px/1.08 var(--f-grot); color: var(--matcha); text-transform: uppercase; letter-spacing: -.88px; white-space: nowrap; }
+.kanji { font: 600 22px/1.08 var(--f-inter); color: var(--matcha); letter-spacing: -.88px; left: 960px; transform: translateX(-50%); }
+.count { left: 30px; top: 875px; font: 400 188px/1 var(--f-display); color: var(--matcha); text-shadow: 4px 4px 8px rgba(0,0,0,.4); font-variant-numeric: tabular-nums; transform-origin: 0 100%; }
+.track { left: 30px; top: 1037px; width: 1860px; height: 13px; box-sizing: border-box; transform-origin: 0 50%; }
+.group { position: absolute; inset: 0; pointer-events: none; }
+/* logo reel window: feathered top and bottom edges (--fe set per cell), like a feathered mask in After Effects */
+.cell { position: absolute; overflow: visible;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fe, 30px), #000 calc(100% - var(--fe, 30px)), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fe, 30px), #000 calc(100% - var(--fe, 30px)), transparent 100%); }
+.strip { position: absolute; left: 0; top: 0; width: 100%; }
+.row { display: block; white-space: nowrap; text-align: center; overflow: visible; }
+.row span { display: inline-block; }
+.row.lat { font-family: var(--f-display); color: var(--cream); text-transform: uppercase; text-shadow: 4px 4px 8px rgba(0,0,0,.4); }
+.row.lat.small { font-family: var(--f-grot); font-weight: 700; color: var(--matcha); }
+.row.jp { font-family: var(--f-jp); font-weight: 700; color: var(--cream); }
+.row.jp.small { color: var(--matcha); }
+#sit svg { width: 100%; height: 100%; display: block; overflow: visible; }
+/* per-letter scramble: each slot is a tiny vertical reel clipped to its line; kanji take the text colour */
+.scr { pointer-events: none; }
+/* per-letter reel window: the slot reaches --fe above and below its line and --fx to the sides (padding, cancelled by a negative
+   margin so the layout does not move) and the glyphs dissolve over that band instead of being cut off */
+.scr { --fe: .35em; --fx: 2px; }
+.scr .ch { position: relative; display: inline-block; padding: var(--fe) var(--fx); margin: calc(-1 * var(--fe)) calc(-1 * var(--fx));
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fe), #000 calc(100% - var(--fe)), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fe), #000 calc(100% - var(--fe)), transparent 100%); }
+.scr .l { visibility: hidden; }
+.scr .ol { position: absolute; left: var(--fx); top: var(--fe); visibility: hidden; white-space: pre; }
+.scr .k, .scr .ok { position: absolute; left: 50%; transform: translateX(-50%); font-family: var(--f-jp); font-weight: 700; letter-spacing: 0; color: inherit; visibility: hidden; white-space: nowrap; }
+.nav .scr .k, .nav .scr .ok { color: var(--matcha); }
+/* Japanese layer: rolling kanji use the layer's own font and position */
+.scr.nat .k, .scr.nat .ok { left: var(--fx); top: var(--fe); font: inherit; letter-spacing: inherit; transform: none; }
+/* English (in flow) + Japanese (absolute, positioned by JS) layers of a translatable text */
+.dl.en { position: relative; display: inline-block; white-space: nowrap; }
+.dl.jp { position: absolute; top: 0; left: 0; white-space: nowrap; }
+.nav .dl.jp { color: var(--matcha); }
+.progress { left: 30px; top: 1037px; width: 1860px; height: 13px; background: var(--matcha); transform-origin: 0 50%; }
+
+/* hero */
+/* overflow clips the photo (it is 8px wider than the screen on each side), so photo, dark shade and noise always move as one sheet */
+.hero { position: absolute; inset: 0; background: var(--night); overflow: hidden; }
+/* photo / video exactly the size of the screen: nothing overhangs the edge, so no layer can stick out past the shade */
+.hero .bg { left: 0; top: 0; width: 1920px; height: 1080px; object-fit: cover; }
+.hero video.bg { clip-path: inset(0); }
+.hero .shade { inset: 0; background: rgba(0,0,0,.75); }
+/* Figma: Multi noise, size 0.5, density 100%, opacity 30% — static on the main screen */
+.hero .noise { inset: 0; opacity: .3; pointer-events: none; background-size: 512px 512px; mix-blend-mode: plus-lighter; }
+.vtext { width: 12px; }
+.vtext > span {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg);
+  font: 700 16px/1 var(--f-grot); letter-spacing: -.32px; text-transform: uppercase; white-space: nowrap;
+}
+.copy { font: 700 16px/1 var(--f-grot); letter-spacing: -.32px; text-transform: uppercase; color: var(--cream); }
+.scr .w { white-space: nowrap; }
+.scr .ch.ja { margin-right: calc(8px - var(--fx)); }
+.hk { left: 960px; top: 29px; transform: translateX(-50%); overflow: visible; }
+
+/* nav: fixed-size hit box (English width); the text flips to Japanese inside it */
+.nav { left: 243px; top: 30px; display: flex; gap: 25px; }
+.nav a { position: relative; display: block; color: var(--cream); text-decoration: none; height: 12px; transition: color .3s; }
+.nav a.on { color: var(--matcha); }
+.nav a .ul { position: absolute; left: -1px; top: 27px; height: 3px; pointer-events: none; clip-path: inset(-2px 100% -2px 0); }
+.nav a .ul img { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; }
+.nav a:focus-visible { outline: 1px solid var(--matcha); outline-offset: 6px; }
+
+/* footer phrases: hover flips to Japanese, colour stays */
+.foot { left: 774px; top: 1038px; display: flex; gap: 46px; opacity: .4; }
+.foot .ph { position: relative; display: block; height: 12px; cursor: inherit; }
+
+/* buttons: brush pill outline + matcha liquid with a moving wave surface */
+.btn {
+  top: 730px; width: 336px; height: 100px; border-radius: 50px; display: grid; place-items: center;
+  font: 700 22px/1 var(--f-grot); letter-spacing: -.44px; text-transform: uppercase; text-decoration: none;
+}
+.btn.fill { left: 599px; color: var(--matcha-deep); }
+.btn.line { left: 985px; color: var(--matcha); transition: color .35s; }
+.btn.line.on { color: var(--matcha-deep); }
+.btn .pill { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.btn .liq { position: absolute; inset: 0; border-radius: 50px; overflow: hidden; pointer-events: none; isolation: isolate; -webkit-mask-image: -webkit-radial-gradient(white, black); }
+.btn .lv { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.btn .wave { position: absolute; left: 0; top: -14px; width: 200%; height: calc(100% + 40px); animation: wave 2.2s linear infinite; }
+.btn .liq.hov .wave { animation-duration: 1.6s; animation-direction: reverse; }
+@keyframes wave { to { transform: translateX(-50%); } }
+.btn .t { position: relative; display: inline-block; white-space: nowrap; pointer-events: none; }
+
+.flyer { transform-style: preserve-3d; }
+.flyer img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.flyer .soft { filter: blur(6.3px); opacity: .7; }
+.icn { position: absolute; }
+.icn img { position: absolute; max-width: none; }
+.uline { clip-path: inset(-4px 100% -4px 0); }
+.hwo { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; visibility: hidden; }
+
+/* actor (frame-by-frame sprite) */
+.actor { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; }
+.actor img { position: absolute; visibility: hidden; max-width: none; }
+.actor img.on { visibility: visible; }
+.clip { position: absolute; }
+.clip img { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; visibility: hidden; }
+.clip img.on { visibility: visible; }
+/* the bowl and whisk leave the generated frame at its top edge: fade them out instead of a hard cut */
+.clip-toss { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 140px); mask-image: linear-gradient(to bottom, transparent 0, #000 140px); }
+.prop { position: absolute; left: 0; top: 0; }
+.actor, .clip, .prop { pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) { .btn .wave { animation: none; } }
+</style>
+
+<div class="bar" role="toolbar" aria-label="Просмотр анимации">
+  <b>MIYAKO · прелоадер</b>
+  <button id="play" type="button">Повторить</button>
+  <label>Скорость
+    <select id="speed">
+      <option value="1">1×</option>
+      <option value="0.5">0.5×</option>
+      <option value="0.25">0.25×</option>
+    </select>
+  </label>
+  <div class="grow">
+    <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Перемотка">
+    <span class="time" id="time">0.0 с</span>
+  </div>
+  <span id="phase">загрузка</span>
+</div>
+
+<div class="viewport" id="viewport">
+  <div class="frame" id="frame">
+    <div class="stage" id="stage">
+
+      <!-- LOADER -->
+      <section class="loader" id="loader" aria-label="Загрузка">
+        <!-- Kanji stroke data: KanjiVG (c) Ulrich Apel, CC BY-SA 3.0, kanjivg.tagaini.net -->
+<svg id="kanjiWrite" class="abs" viewBox="0 0 213 109" width="50" height="26" aria-label="抹茶" role="img" style="left:960px;top:28px;transform:translateX(-50%);overflow:visible"><g fill="none" stroke="var(--matcha)" stroke-width="12.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5,38.17c1.88,0.46,3.58,0.74,5.64,0.46c4.82-0.66,11.75-1.89,18.65-2.85c1.3-0.18,2.59-0.27,3.88-0.27"/><path d="M26.77,13c1.05,1.05,1.76,3,1.76,5.52c0,15.23-0.01,57.96-0.01,69.4c0,14.25-5.82,4.03-7.27,2.5"/><path d="M12.5,64.93c1.1,1.1,2.07,1.19,4.25-0.18c7-4.38,10.75-6.38,20.75-12.75"/><path d="M44.43,33.74c2.08,0.95,5.51,0.65,7.7,0.32c9-1.34,25.93-2.85,33.5-3.36c2.3-0.15,4.1-0.09,6.31,0.52"/><path d="M49.92,50.77c1.69,0.72,3.82,0.5,5.59,0.39c7.26-0.43,18.12-1.9,25.62-2.52c1.64-0.13,3.64-0.59,5.26-0.18"/><path d="M65.55,12c1.16,1.16,1.4,2.5,1.4,4.11c0,0.68,0.03,50.54,0.02,71.14c0,5.23,0,8.58-0.01,8.75"/><path d="M65.16,50.8c0,1.7-0.78,3.72-1.92,5.69c-6.28,10.87-17,22.85-26.05,28.45"/><path d="M67.59,51.31c3.37,3.79,15.05,19.54,21.01,26.21c1.44,1.61,3.27,3.61,5.46,4.81"/><g transform="translate(104 0)"><path d="M18.5,27.02c2.2,0.53,4.76,0.73,6.96,0.53C41.88,26,68,23.62,82.68,23.01c3.66-0.15,5.87,0.25,7.7,0.51"/><path d="M36.75,15.5c1.05,1.18,1.51,1.78,1.76,3.44c1.05,6.91,1.94,13.8,2.24,16.31"/><path d="M67.75,12.25c0.41,1.59,0.43,2.77,0.06,4.37c-1.62,7.05-2.18,9.88-4.06,18.13"/><path d="M51.5,34.75c0.35,1.84-0.35,3.08-1.28,4.64c-4.89,8.2-14.99,21.54-32.97,31.11"/><path d="M52.5,38.25c5.9,4.37,23.65,17.47,32.05,23.16c3.11,2.1,5.98,3.44,9.7,4.09"/><path d="M34.53,68.21c1.1,0.15,4.05,0.54,6.95,0.19c7.4-0.9,18.9-2.4,28.02-3.17c2.9-0.24,3.66-0.15,5.48,0"/><path d="M52.32,53.94c1.18,1.31,1.81,3.06,1.81,6.15c0,0.46,0,19.56-0.06,30.66c-0.02,3.5-0.05,6.13-0.08,7"/><path d="M38.52,79.14c0.11,1-0.1,1.94-0.64,2.8c-1.7,3.35-6.13,7.94-12.38,12.31"/><path d="M68.5,78.75c4.79,2.51,12.36,10.32,13.56,14.22"/></g></g></svg>
+        <div class="group" id="grpL"></div>
+        <div class="group" id="grpR"></div>
+        <div class="abs" id="sit" style="left:791px;top:365px;width:338px;height:342px" role="img" aria-label="Персонаж MIYAKO взбивает матчу"></div>
+        <p class="abs count trim" id="count">0%</p>
+        <div class="abs track" id="track"></div>
+        <div class="abs progress" id="progress"></div>
+      </section>
+
+      <!-- HERO (main screen being pulled in) -->
+      <section class="hero" id="hero" aria-label="Первый экран">
+        <img class="abs bg" src="assets/bar-poster.jpg" alt="Интерьер MIYAKO matcha bar">
+        <!-- living bar: looped time-lapse of guests and staff in motion blur, under the shade + noise -->
+        <video class="abs bg" id="bgv" muted loop playsinline autoplay preload="auto" poster="assets/bar-poster.jpg" aria-hidden="true">
+          <source src="assets/bar-loop.webm" type="video/webm">
+          <source src="assets/bar-loop.mp4" type="video/mp4">
+        </video>
+        <div class="abs shade"></div>
+        <div class="abs noise" id="noise"></div>
+
+        <div class="abs flyer" id="fly1" style="left:1576px;top:-35px;width:327px;height:807px">
+          <img class="soft" src="assets/flyer-blur.webp" alt="" style="left:3px;top:2px">
+          <img src="assets/flyer.webp" alt="Флаер MIYAKO matcha bar">
+        </div>
+        <div class="abs flyer" id="fly2" style="left:1440px;top:572px;width:516.5px;height:862.8px">
+          <div class="abs" style="left:94.7px;top:27.9px;width:327px;height:807px;transform:rotate(14.32deg)">
+            <img class="soft" src="assets/flyer-blur.webp" alt="" style="left:2.4px;top:2.7px">
+            <img src="assets/flyer.webp" alt="">
+          </div>
+        </div>
+
+        <div id="vtexts"></div>
+
+        <nav class="abs nav copy" id="nav" aria-label="Навигация">
+          <a href="#catalog" data-jp="抹茶とカタログ">mathca &amp; catalog</a>
+          <a href="#about" data-jp="私たち">about us</a>
+          <a href="#spot" data-jp="お店">the spot</a>
+        </nav>
+        <!-- kanji stroke writer is cloned here from the loader -->
+        <div id="icons" aria-hidden="true"></div>
+
+        <div class="abs copy hsm" style="left:243px;top:157px;width:222px"><p>New York, USA</p><p>82 Greenwich Ave West Village</p></div>
+        <div class="abs copy hsm" style="left:243px;top:231px;width:222px"><p>Rio de Janeiro,</p><p>BR 214 Av. Atlântica Copacabana</p></div>
+
+        <div class="group" id="hgL"></div>
+        <div class="group" id="hgR"></div>
+        <img class="abs" id="seat" src="assets/character.svg" alt="Персонаж MIYAKO" style="left:787px;top:301px;width:350px;height:354px">
+
+        <a class="abs btn fill" id="btnFill" href="#catalog" data-jp="カタログを見る">see catalog</a>
+        <a class="abs btn line" id="btnLine" href="#delivery" data-jp="配達を手配">arrange delivery</a>
+
+        <p class="abs copy trim" id="sorry" style="left:243px;top:1019px;color:var(--matcha)">Sorry coffe we’re moved on...</p>
+        <div class="abs uline" id="uline" style="left:243px;top:1041px;width:268px;height:9px">
+          <img src="assets/39c6e.min.svg" alt="" style="position:absolute;left:0;top:-12.65%;width:100.11%;height:123.42%">
+        </div>
+        <div class="abs copy trim foot" id="foot">
+          <span class="ph" data-jp="砂糖なし。">no sugar.</span>
+          <span class="ph" data-jp="無添加。">no additives.</span>
+          <span class="ph" data-jp="お茶だけ。">just tea.</span>
+        </div>
+
+      </section>
+
+      <!-- props + actor sit above both screens -->
+      <svg class="prop" id="bowl" width="96" height="70" viewBox="0 0 96 70" aria-hidden="true">
+        <path d="M6 22 C10 56 30 66 48 66 C66 66 86 56 90 22 Z" fill="#070606" stroke="#F6F3EA" stroke-width="4.5" stroke-linejoin="round"/>
+        <ellipse cx="48" cy="22" rx="42" ry="11" fill="#99B154" stroke="#F6F3EA" stroke-width="4.5"/>
+        <path d="M30 20 q4 -5 8 0 M52 24 q4 -5 8 0 M62 17 q3 -4 6 0" fill="none" stroke="#303F12" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <svg class="prop" id="splash" width="90" height="60" viewBox="0 0 90 60" aria-hidden="true">
+        <circle cx="20" cy="40" r="7" fill="#99B154"/><circle cx="44" cy="18" r="9" fill="#99B154"/>
+        <circle cx="66" cy="34" r="6" fill="#99B154"/><circle cx="78" cy="12" r="4" fill="#99B154"/><circle cx="8" cy="16" r="3.5" fill="#99B154"/>
+      </svg>
+      <svg class="prop" id="whisk" width="44" height="92" viewBox="0 0 44 92" aria-hidden="true">
+        <rect x="16" y="2" width="12" height="34" rx="5" fill="#070606" stroke="#F6F3EA" stroke-width="4"/>
+        <path d="M14 38 C6 52 4 70 8 88 M22 38 V90 M30 38 C38 52 40 70 36 88 M18 38 C12 56 12 74 15 89 M26 38 C32 56 32 74 29 89" fill="none" stroke="#F6F3EA" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+      <div class="actor" id="actor"></div>
+      <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <filter id="mbHero" x="-30%" y="0" width="160%" height="100%" color-interpolation-filters="sRGB"><feGaussianBlur id="mbHeroBlur" stdDeviation="0 0"/></filter>
+        <filter id="mbLogo" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur id="mbLogoBlur" stdDeviation="0 0"/></filter>
+        <filter id="mbReel" x="-10%" y="-30%" width="120%" height="160%"><feGaussianBlur id="mbReelBlur" stdDeviation="0 0"/></filter>
+        <filter id="mbActor" x="-40%" y="-10%" width="180%" height="120%"><feGaussianBlur id="mbActorBlur" stdDeviation="0 0"/></filter>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="loader.js"></script>
+
+</body></html>
