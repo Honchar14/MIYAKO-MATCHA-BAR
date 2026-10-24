@@ -846,7 +846,6 @@
       gsap.set([$('#fly1'), $('#fly2')], { rotationX: 0, rotationY: 0 });
     };
     tl.eventCallback('onStart', reset);
-    $('#scrub').addEventListener('input', reset);
   }
 
   // ---------- hand-drawn cursor: an ordinary arrow drawn with a brush (black ink fill, cream brush edges) ----------
@@ -1187,24 +1186,7 @@
     }
     window.__render = render;
     gsap.ticker.add(() => render(tl.time()));
-    const scrub = $('#scrub'), time = $('#time'), phaseEl = $('#phase');
-    tl.eventCallback('onUpdate', () => {
-      const now = tl.time();
-      render(now);
-      scrub.value = Math.round(tl.progress() * 1000);
-      time.textContent = now.toFixed(1) + ' с';
-      let label = phases[0][1];
-      for (const [pt, l] of phases) if (now >= pt) label = l;
-      phaseEl.textContent = label;
-    });
-    scrub.addEventListener('input', () => { tl.pause(); tl.progress(scrub.value / 1000); });
-    $('#play').addEventListener('click', () => tl.restart());
-    $('#speed').addEventListener('change', (e) => tl.timeScale(+e.target.value));
-    addEventListener('keydown', (e) => {
-      if (e.target.closest && e.target.closest('input,select')) return;
-      if (e.code === 'Space') { e.preventDefault(); tl.paused() ? tl.play() : tl.pause(); }
-      if ('rRкК'.includes(e.key)) tl.restart();
-    });
+    tl.eventCallback('onUpdate', () => render(tl.time()));
     interactions(tl, H);
     window.__tl = tl; window.__H = H;
     tl.progress(0);
