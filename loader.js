@@ -771,11 +771,7 @@
       });
     }
 
-    // footer phrases: flip to Japanese, colour unchanged
-    for (const f of H.foot) {
-      on(f.el, 'pointerenter', () => { if (ready()) swap(f.d, 'jp'); });
-      on(f.el, 'pointerleave', () => { if (ready()) swap(f.d, 'en'); });
-    }
+    // footer phrases: no hover (static after the hand-written intro)
 
     // buttons: magnetic pull towards the cursor, matcha (or milk, on the green one) pours in with a live
     // wave surface, the label flips to Japanese; on leave it drains and the button springs back
@@ -873,7 +869,7 @@
       + `</svg>`;
     const cur = `url("data:image/svg+xml,${encodeURIComponent(svg)}") 5 4, auto`;
     const st = document.createElement('style');
-    st.textContent = `html, body, body * { cursor: ${cur}; } a, a *, button, select, input, .flyer, .flyer *, .foot .ph, .foot .ph * { cursor: ${cur.replace('auto', 'pointer')}; }`;
+    st.textContent = `html, body, body * { cursor: ${cur}; } a, a *, button, select, input, .flyer, .flyer * { cursor: ${cur.replace('auto', 'pointer')}; }`;
     document.head.appendChild(st);
     window.__cursorSVG = svg;
   })();
