@@ -430,6 +430,76 @@
     roll(inn, true, { delays: at(inn).map(v => v + T_OUT * .62), T: T_IN, ease: outCubic, flips: 3 });
   }
 
+  // ---------- AUTHENTIC / JAPANESE / GREEN / TEA: hairline reveal ----------
+  // A thin matcha rule is drawn under the word from the edge the word is aligned to (left words run →,
+  // right words ←, mirrored around the logo). The letters rise out of that line one after another,
+  // right behind the rule's head, and the rule runs on past the far end and is gone. Nothing spins,
+  // nothing flickers: one line, one quiet rise. Timeline-driven, so scrubbing and replay just work.
+  const RISE = { DRAW: .62, LET0: .1, SPREAD: .36, LET: .85, OFF: .74, OFF_D: .6, GAP: 4, RULE: 2 };
+  const inOutCubic = (u) => u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+  const clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
+  // box: the element that is clipped at the line (the label's <p>); dir: +1 aligned left, −1 aligned right
+  function riseSetup(lbl, box, dir) {
+    const br = box.getBoundingClientRect(), k = br.width / box.offsetWidth || 1;
+    const chars = lbl.chars.filter(c => c.orig && c.orig !== ' ');
+    const cs = getComputedStyle(chars[0].l);
+    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const mH = ctx.measureText('H');
+    const rects = chars.map(c => c.l.getBoundingClientRect());
+    const X = (r) => (r.left - br.left) / k;
+    // baseline = top of the letter's content box + the font ascent; ink edges of the first / last letter
+    const base = (rects[0].top - br.top) / k + mH.fontBoundingBoxAscent;
+    const x0 = X(rects[0]) - ctx.measureText(chars[0].orig).actualBoundingBoxLeft;
+    const x1 = X(rects[rects.length - 1]) + ctx.measureText(chars[chars.length - 1].orig).actualBoundingBoxRight;
+    const cx = rects.map(r => X(r) + r.width / k / 2), a = Math.min(...cx), b = Math.max(...cx), W = Math.max(1, b - a);
+    chars.forEach((c, i) => { c.rf = dir > 0 ? (cx[i] - a) / W : (b - cx[i]) / W; });
+    const line = base + RISE.GAP;                                // the letters come out from behind this line
+    const rule = document.createElement('span');
+    rule.className = 'rise-rule';
+    Object.assign(rule.style, { left: (box.offsetLeft + x0).toFixed(2) + 'px', top: (box.offsetTop + line).toFixed(2) + 'px',
+      width: (x1 - x0).toFixed(2) + 'px', height: RISE.RULE + 'px' });
+    box.parentNode.appendChild(rule);
+    lbl.rise = { box, rule, dir, t0: 1e9, travel: mH.actualBoundingBoxAscent + RISE.GAP + 2,
+      clip: `inset(-40px -60px ${(box.offsetHeight - line).toFixed(2)}px -60px)`, ck: '', rk: '' };
+  }
+  function renderRise(lbl, t) {
+    const r = lbl.rise;
+    if (lbl.live) {                                              // after the intro the language flips own the letters
+      if (r.ck !== 'live') { r.ck = 'live'; r.box.style.clipPath = ''; r.rule.style.visibility = 'hidden'; r.rk = ''; }
+      return;
+    }
+    const u = t - r.t0;
+    // the rule: head (drawn from the aligned edge) and tail (follows it off the far end)
+    const head = inOutCubic(clamp01(u / RISE.DRAW)), tail = inOutCubic(clamp01((u - RISE.OFF) / RISE.OFF_D));
+    const rk = head <= 0 || tail >= 1 ? '-' : head.toFixed(4) + tail.toFixed(4);
+    if (rk !== r.rk) {
+      r.rk = rk;
+      if (rk === '-') r.rule.style.visibility = 'hidden';
+      else {
+        const lo = (tail * 100).toFixed(2) + '%', hi = ((1 - head) * 100).toFixed(2) + '%';
+        r.rule.style.visibility = 'visible';
+        r.rule.style.clipPath = r.dir > 0 ? `inset(-1px ${hi} -1px ${lo})` : `inset(-1px ${lo} -1px ${hi})`;
+      }
+    }
+    // the letters: each rises from behind the line and settles softly (no blur, no fade — the line hides it)
+    const rising = u < RISE.LET0 + RISE.SPREAD + RISE.LET;
+    const ck = rising ? 'clip' : '';
+    if (ck !== r.ck) { r.ck = ck; r.box.style.clipPath = rising ? r.clip : ''; }
+    for (const c of lbl.chars) {
+      if (!c.orig || c.orig === ' ') continue;
+      const p = clamp01((u - RISE.LET0 - c.rf * RISE.SPREAD) / RISE.LET);
+      c.shown = p >= 1;
+      const y = u < RISE.LET0 + c.rf * RISE.SPREAD ? -1 : (1 - outQuart(p)) * r.travel;
+      const key = 'r' + (y < 0 ? '-' : y.toFixed(2));
+      if (key === c.key) continue;
+      c.key = key;
+      c.k.style.visibility = c.ok.style.visibility = c.ol.style.visibility = 'hidden';
+      c.l.style.opacity = ''; c.l.style.transform = '';
+      c.l.style.visibility = y < 0 ? 'hidden' : 'visible';
+      c.el.style.transform = y > .005 ? `translateY(${y.toFixed(2)}px)` : '';
+    }
+  }
+
 
 
   // ink edges (Figma aligns the labels to the letters' visible edges, not to their advance boxes)
@@ -715,6 +785,9 @@
     // vertical manifesto, addresses and footer are hand-written in the intro (like 抹茶 and "Sorry coffe…")
     H.hw = [...H.vert, ...H.addr, ...H.foot.map(f => f.l)].map(l => { l.instant = true; return handwriteOverlay(l); });
     H.nav.forEach(fitUnderline);
+    // AUTHENTIC / JAPANESE / GREEN / TEA (loader + main screen): hairline reveal, mirrored left / right
+    labels.forEach((l, i) => riseSetup(l, l.p, i % 2 ? -1 : 1));
+    H.labels.forEach((d, i) => riseSetup(d.E, d.box, i % 2 ? -1 : 1));
 
     // kanji at the top: the loader's stroke writer, at the main screen's 16px size
     const hk = $('#kanjiWrite').cloneNode(true);
@@ -973,8 +1046,8 @@
     };
     spinReels(letters, T_LOGO);
     const T_LOGO_END = T_LOGO + 5 * .09 + SPIN;
-    // labels: letter by letter, each flips through kanji 5–7 times (50 ms apiece) and lands
-    labels.forEach((l, i) => { l.t0 = T_LOGO + .35 + i * .1; });
+    // labels: hairline reveal while the logo lands — the top pair first, the bottom pair a beat later
+    labels.forEach((l, i) => { l.rise.t0 = T_LOGO + .5 + (i >> 1) * .16; });
 
     // 4 — whisking (clip frames 1–36) right after the drawing, then the toss + stand-up (frames 37–97), 30 fps.
     //     Clip frame 1 is the drawn character itself, so the hand-over from the SVG is invisible.
@@ -1082,7 +1155,7 @@
     // 1) MIY / AKO spin in like reels and the labels flip in letter by letter — exactly as on the loader
     const T_HLOGO = T_MAIN;
     spinReels(H.letters, T_HLOGO);
-    H.labels.forEach((d, i) => { d.E.t0 = T_HLOGO + .35 + i * .1; });
+    H.labels.forEach((d, i) => { d.E.rise.t0 = T_HLOGO + .45 + (i >> 1) * .16; });
 
     // 2) all the small copy, letter by letter through kanji (top-left first, then down and across)
     const T_SMALL = T_MAIN + .2;
@@ -1174,8 +1247,8 @@
       renderFrame(now);
       placeToss(now);
       renderClips(now);
-      for (const l of labels) renderScramble(l, now);
-      for (const d of H.labels) renderScramble(d.E, now);
+      for (const l of labels) renderRise(l, now);
+      for (const d of H.labels) renderRise(d.E, now);
       for (const l of H.small) renderScramble(l, now);
       for (const b of H.btns) renderScramble(b.l, now);
       for (const o of H.hw) o.render(now);
