@@ -31,7 +31,7 @@
   }
   addEventListener('resize', fit); fit();
 
-  // ---------- film grain: animated on the loader, static Figma noise on the main screen ----------
+  // ---------- film grain: loader and main screen ----------
   (function grain() {
     const c = document.createElement('canvas'); c.width = c.height = 256;
     const g = c.getContext('2d'), img = g.createImageData(256, 256);
@@ -44,40 +44,20 @@
     // (background-position on a full-screen blended layer repainted ~2000×1160 px ten times a second)
     d.style.inset = '-256px'; d.style.willChange = 'transform';
     let t = 0; setInterval(() => { t++; d.style.transform = `translate(${(t * 73) % 256}px, ${(t * 151) % 256}px)`; }, 90);
-    // main screen — fine white film grain: one grain = one physical screen pixel at any window size and screen
-    // density (the tile is re-sized on resize). Three layers cross-fade in a loop (CSS opacity animation on the
-    // compositor, phases 0/⅓/⅔): the sum of their weights is constant, so the grain "boils" smoothly instead of
-    // jumping. Each layer gets a new random offset only at the moment it is fully transparent.
-    // Film-like grain instead of harsh per-pixel static: gaussian values, softened by a small [1 2 1] blur (grains
-    // read as soft ~2 px specks, not sharp dots), normalised to a gentle level; the layers' opacity keeps it faint.
-    const NT = 256, GM = 55, GS = 40;
-    const n = document.createElement("canvas"); n.width = n.height = NT;
-    const ng = n.getContext('2d'), nd = ng.createImageData(NT, NT);
-    const raw = new Float32Array(NT * NT);
-    for (let i = 0; i < raw.length; i++) { const u = Math.random() || 1e-9, v = Math.random(); raw[i] = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
-    const W = [1, 2, 1], soft = new Float32Array(NT * NT);
-    for (let y = 0; y < NT; y++) for (let x = 0; x < NT; x++) {
-      let a = 0;
-      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) a += W[i + 1] * W[j + 1] * raw[((y + j + NT) % NT) * NT + (x + i + NT) % NT];
-      soft[y * NT + x] = a / 16;
-    }
-    let mu = 0, sd = 0; for (const v of soft) mu += v; mu /= soft.length; for (const v of soft) sd += (v - mu) ** 2; sd = Math.sqrt(sd / soft.length);
-    for (let i = 0, k = 0; k < soft.length; i += 4, k++) {
-      const v = Math.max(0, Math.min(255, GM + (soft[k] - mu) / sd * GS));
-      nd.data[i] = nd.data[i+1] = nd.data[i+2] = v; nd.data[i+3] = 255;
-    }
+    // main screen — film grain like voiden-london.vercel.app: one 512 px tile of full-range grey noise (0–255),
+    // normal blending at 6.5 % opacity, on the background only (under the text, character and receipts). It jumps to
+    // a random whole-pixel offset 12 times a second — moving its own GPU layer, nothing is repainted.
+    const n = document.createElement('canvas'); n.width = n.height = 512;
+    const ng = n.getContext('2d'), nd = ng.createImageData(512, 512);
+    for (let i = 0; i < nd.data.length; i += 4) { const v = Math.random() * 255; nd.data[i] = nd.data[i+1] = nd.data[i+2] = v; nd.data[i+3] = 255; }
     ng.putImageData(nd, 0, 0);
-    const layers = [...document.querySelectorAll('.hero .noise')], url = `url(${n.toDataURL()})`;
-    const devPx = () => stageScale * (devicePixelRatio || 1);          // stage px → physical px
-    // shift by a whole number of physical pixels, so the grains stay sharp squares
-    const jump = (el) => { const k = devPx(), j = () => (Math.floor(Math.random() * NT) / k).toFixed(4);
-      el.style.transform = `translate(${-j()}px, ${-j()}px)`; };
-    const sizeNoise = () => {
-      const t = (NT / devPx()).toFixed(4), pad = `${-Math.ceil(NT / devPx()) - 2}px`;   // room for a shift of up to one tile
-      layers.forEach(el => { el.style.backgroundSize = `${t}px ${t}px`; el.style.right = el.style.bottom = pad; jump(el); });
-    };
-    layers.forEach(el => { el.style.backgroundImage = url; el.addEventListener('animationiteration', () => jump(el)); });
-    sizeNoise(); addEventListener('resize', sizeNoise);
+    const nz = $('#noise');
+    nz.style.backgroundImage = `url(${n.toDataURL()})`;
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setInterval(() => {
+      if (still || document.hidden) return;
+      nz.style.transform = `translate3d(${(Math.random() * 256) | 0}px, ${(Math.random() * 256) | 0}px, 0)`;
+    }, 83);
   })();
 
   // ---------- hero: vertical manifesto + brush icon cluster (from Figma) ----------
