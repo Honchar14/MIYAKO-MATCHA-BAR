@@ -43,7 +43,8 @@
     const NV = 96;
     const n = document.createElement("canvas"); n.width = n.height = 512;
     const ng = n.getContext('2d'), nd = ng.createImageData(512, 512);
-    for (let i = 0; i < nd.data.length; i += 4) { nd.data[i] = Math.random() * NV; nd.data[i+1] = Math.random() * NV; nd.data[i+2] = Math.random() * NV; nd.data[i+3] = 255; }
+    // white (monochrome) grain, same strength as the Figma colour noise — the overall tone of the screen is unchanged
+    for (let i = 0; i < nd.data.length; i += 4) { const v = Math.random() * NV; nd.data[i] = nd.data[i+1] = nd.data[i+2] = v; nd.data[i+3] = 255; }
     ng.putImageData(nd, 0, 0);
     $('#noise').style.backgroundImage = `url(${n.toDataURL()})`;
   })();
