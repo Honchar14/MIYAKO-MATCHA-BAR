@@ -231,7 +231,8 @@
     // feathered window (like a feathered mask in After Effects): the cell reaches E px above and below the
     // letter and fades to nothing over that band, so glyphs dissolve at the edges instead of being cut.
     // It is also XW px wider on each side, so the shadow and the blur are never clipped at the sides.
-    const E = Math.round(R * .24), XW = 60;
+    // E kept small (~12 px at 188 px) so the spinning glyphs never reach the AUTHENTIC / GREEN labels above and below
+    const E = Math.round(R * .09), XW = 60;
     const lx = o.align === 'right' ? x - w : x;
     Object.assign(cell.style, { left: lx - XW + 'px', top: capTop - 1 - E + 'px', width: w + 2 * XW + 'px', height: R + 2 * E + 'px', '--fe': E + 'px' });
     const strip = document.createElement('div'); strip.className = 'strip';
@@ -1006,6 +1007,7 @@
           .fromTo(l.strip, { y: 0 }, { y: -l.n * l.P, duration: SPIN, ease: 'expo.out', immediateRender: false }, at)
           .fromTo(l.strip, { filter: 'blur(5px)' }, { filter: 'blur(0px)', duration: SPIN * .55, ease: 'power2.out', immediateRender: false }, at)
           .set(l.jp, { autoAlpha: 0 }, at + SPIN);
+        l.land = at + SPIN;                                   // after this the window's mask is dropped (see render)
       });
       tl.set(strips, { filter: 'none', willChange: 'auto' }, t0 + (list.length - 1) * .09 + SPIN + .02);
     };
@@ -1218,6 +1220,8 @@
       for (const l of H.small) renderScramble(l, now);
       for (const b of H.btns) renderScramble(b.l, now);
       for (const o of H.hw) o.render(now);
+      // logo letters at rest: no reel window mask, so the text shadow is never cut by the (now narrow) window
+      for (const l of [...letters, ...H.letters]) { const r = now >= l.land; if (r !== l.rest) { l.rest = r; l.cell.classList.toggle('rest', r); } }
       for (const l of H.vert) { const on = now >= l.t0; if (on !== l.plain) { l.plain = on; l.p.classList.toggle('plain', on); } }
       for (const o of H.hwLabels) o.render(now);
       for (const o of H.hwLoader) o.render(now);

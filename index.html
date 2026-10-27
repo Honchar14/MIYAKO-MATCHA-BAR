@@ -52,6 +52,7 @@ body {
 .cell { position: absolute; overflow: visible;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fe, 30px), #000 calc(100% - var(--fe, 30px)), transparent 100%);
           mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fe, 30px), #000 calc(100% - var(--fe, 30px)), transparent 100%); }
+.cell.rest { -webkit-mask-image: none; mask-image: none; }
 .strip { position: absolute; left: 0; top: 0; width: 100%; }
 .row { display: block; white-space: nowrap; text-align: center; overflow: visible; }
 .row span { display: inline-block; }
