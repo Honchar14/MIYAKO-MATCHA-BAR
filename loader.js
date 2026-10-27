@@ -1099,8 +1099,8 @@
     img.after(cv);
     const gl = cv.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: true, depth: true });
     if (!gl || !gl.getExtension('OES_standard_derivatives')) { cv.remove(); return null; }
-    const NF = 20;
-    const VS = `precision highp float;attribute vec2 a;uniform float P,D,O;uniform vec2 Z,C;uniform vec4 F[${NF}];uniform vec3 A[${NF}];
+    const NF = 28;
+    const VS = `precision highp float;attribute vec2 a;uniform float P,D,O,K;uniform vec2 Z,C;uniform vec4 F[${NF}];uniform vec3 A[${NF}];
       varying vec2 vUv;varying vec3 vPos;varying float vW;
       float tri(float t){return abs(fract(t)-.5)*2.-.5;}
       void main(){
@@ -1112,11 +1112,11 @@
         // ahead of the front the paper is still bunched up in a crumpled roll that travels with the front
         float t=smoothstep(f-.03,f+.1,sd);
         float sd2=sd-(sd-f)*t*.95;
-        float W=smoothstep(f-.36,f+.02,sd);                           // wrinkled at the roll, relaxing behind it
+        float W=mix(K,1.,t);                                          // the whole sheet stays crumpled (K) until it relaxes at the end
         vec3 fold=vec3(0.);
         for(int i=0;i<${NF};i++){fold+=A[i]*tri(dot(fp,F[i].xy)*F[i].z+F[i].w);}
         vec2 q=vec2(fp.x*mix(1.,.42,t),D>0.?O+sd2*span:O-sd2*span);
-        vec3 pos=vec3(q,0.)+fold*W*(.6+.5*t);
+        vec3 pos=vec3(q,0.)+fold*W*(.75+.6*t);
         vPos=pos;vUv=a;vW=W;
         gl_Position=vec4(pos.x/(C.x*.5),-pos.y/(C.y*.5),-pos.z/2000.,1.);
       }`;
@@ -1129,8 +1129,8 @@
         if(n.z<0.)n=-n;
         vec3 L=normalize(vec3(-.45,-.6,.66));
         float d=max(dot(n,L),0.);
-        float lit=.46+.62*d+.07*pow(max(dot(reflect(-L,n),vec3(0.,0.,1.)),0.),8.);   // matte paper, not foil
-        lit*=mix(.62,1.08,smoothstep(-90.,70.,vPos.z));            // deep folds sit in shadow
+        float lit=.54+.54*d+.06*pow(max(dot(reflect(-L,n),vec3(0.,0.,1.)),0.),8.);   // matte paper, not foil
+        lit*=mix(.74,1.06,smoothstep(-80.,60.,vPos.z));            // deep folds sit in shadow
         if(gl_FrontFacing)col.rgb=mix(col.rgb,vec3(.84*col.a),.88);  // the back of the paper (y is flipped)
         col.rgb*=mix(1.,lit,min(1.,vW*2.2));
         gl_FragColor=col;
@@ -1148,16 +1148,16 @@
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
     const la = gl.getAttribLocation(pr, 'a'); gl.enableVertexAttribArray(la); gl.vertexAttribPointer(la, 2, gl.FLOAT, false, 0, 0);
     const U = (k) => gl.getUniformLocation(pr, k);
-    const uP = U('P'), uZ = U('Z'), uC = U('C');
+    const uP = U('P'), uK = U('K'), uZ = U('Z'), uC = U('C');
     gl.uniform1f(U('D'), dir);
     // creases: many sizes, random directions; seeded so each receipt crumples its own way
     let sd = Math.floor(seed * 9301 + 49297); const rnd = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
     const Fv = [], Av = [];
     for (let i = 0; i < NF; i++) {
-      const an = rnd() * Math.PI * 2, lam = 26 + Math.pow(rnd(), 1.4) * 230;
+      const an = rnd() * Math.PI * 2, lam = 18 + Math.pow(rnd(), 1.6) * 230;
       Fv.push(Math.cos(an), Math.sin(an), 1 / lam, rnd());
-      const amp = 7 + lam * .3;
-      Av.push((rnd() - .5) * amp * 1.1, (rnd() - .5) * amp * 1.3, (rnd() - .4) * amp * 1.9);
+      const amp = 6 + lam * .26;
+      Av.push((rnd() - .5) * amp * .7, (rnd() - .5) * amp * .8, (rnd() - .4) * amp * 1.9);   // mostly depth: the sheet keeps its outline, the print stays readable
     }
     gl.uniform4fv(U('F'), new Float32Array(Fv)); gl.uniform3fv(U('A'), new Float32Array(Av)); gl.uniform1f(U('O'), startY);
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
@@ -1180,14 +1180,18 @@
         const playing = p > 0 && p < 1 && upload();
         img.style.visibility = p >= 1 || (!playing && p > 0) ? '' : 'hidden';
         cv.style.visibility = playing ? 'visible' : 'hidden';
-        if (soft) soft.style.opacity = (.7 * Math.max(0, Math.min(1, (p - .7) / .3))).toFixed(3);
+        if (soft) soft.style.opacity = (.7 * Math.max(0, Math.min(1, (p - .8) / .2))).toFixed(3);
         if (!playing || Math.abs(p - last) < 1e-4) return;
         last = p;
         const w = img.offsetWidth, h = img.offsetHeight, cw = w + 2 * PAD, ch = h + 2 * PAD;
         const k = Math.min(2, (devicePixelRatio || 1) * stageScale);
         const W = Math.round(cw * k), Hh = Math.round(ch * k);
         if (cv.width !== W || cv.height !== Hh) { cv.width = W; cv.height = Hh; gl.viewport(0, 0, W, Hh); }
-        gl.uniform1f(uP, easeOut(p) * .85 + p * .15);            // unrolls fast, settles softly
+        // first it unrolls along the sheet, still fully crumpled; then the wrinkles slowly relax and it lies flat
+        const u = Math.min(1, p / .5);
+        gl.uniform1f(uP, easeOut(u) * .7 + u * .3);
+        const r = Math.max(0, Math.min(1, (p - .38) / .62));
+        gl.uniform1f(uK, 1 - r * r * (3 - 2 * r));
         gl.uniform2f(uZ, w, h); gl.uniform2f(uC, cw, ch);
         gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
@@ -1467,8 +1471,8 @@
       }
     };
     drawFly();
-    tl.to(flyP, { a: 1, duration: 1.1, ease: 'none', onUpdate: drawFly }, T_FLY)
-      .to(flyP, { b: 1, duration: 1.1, ease: 'none', onUpdate: drawFly }, T_FLY + .2);
+    tl.to(flyP, { a: 1, duration: 2, ease: 'none', onUpdate: drawFly }, T_FLY)
+      .to(flyP, { b: 1, duration: 2, ease: 'none', onUpdate: drawFly }, T_FLY + .3);
 
     // 5) buttons appear the way they react to hover: a liquid wave rises inside the pill.
     //    SEE CATALOG fills with matcha and stays; ARRANGE DELIVERY fills, then drains and leaves its outline.
