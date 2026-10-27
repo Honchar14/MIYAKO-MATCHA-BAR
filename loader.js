@@ -566,7 +566,7 @@
     const box = d.box;
     if (getComputedStyle(box).position === 'static') box.style.position = 'relative';
     const br = box.getBoundingClientRect(), k = (br.width / box.offsetWidth) || stageScale;
-    const svg = svgEl('svg', { class: 'ink', width: 1, height: 1, 'aria-hidden': 'true' });
+    const svg = svgEl('svg', { class: 'lswap', width: 1, height: 1, 'aria-hidden': 'true' });
     box.appendChild(svg);
     const U = [1e9, -1e9, 1e9, -1e9];                          // union ink box of both languages
     const layer = (L, jp) => {
