@@ -1100,7 +1100,7 @@
     const gl = cv.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: true, depth: true });
     if (!gl || !gl.getExtension('OES_standard_derivatives')) { cv.remove(); return null; }
     const NF = 28;
-    const VS = `precision highp float;attribute vec2 a;uniform float P,D,O,K;uniform vec2 Z,C;uniform vec4 F[${NF}];uniform vec3 A[${NF}];
+    const VS = `precision highp float;attribute vec2 a;uniform float P,D,O,K,Ph,R;uniform vec2 Z,C;uniform vec4 F[${NF}];uniform vec3 A[${NF}];
       varying vec2 vUv;varying vec3 vPos;varying float vW;
       float tri(float t){return abs(fract(t)-.5)*2.-.5;}
       void main(){
@@ -1114,9 +1114,10 @@
         float sd2=sd-(sd-f)*t*.95;
         float W=mix(K,1.,t);                                          // the whole sheet stays crumpled (K) until it relaxes at the end
         vec3 fold=vec3(0.);
-        for(int i=0;i<${NF};i++){fold+=A[i]*tri(dot(fp,F[i].xy)*F[i].z+F[i].w);}
+        for(int i=0;i<${NF};i++){fold+=A[i]*tri(dot(fp,F[i].xy)*F[i].z+F[i].w+Ph*(fract(F[i].w*7.13)-.5));}   // Ph: a new pose every step
         vec2 q=vec2(fp.x*mix(1.,.42,t),D>0.?O+sd2*span:O-sd2*span);
         vec3 pos=vec3(q,0.)+fold*W*(.75+.6*t);
+        vec2 anc=vec2(0.,O);float cr=cos(R),sr=sin(R);pos.xy=anc+mat2(cr,sr,-sr,cr)*(pos.xy-anc);   // the sheet tilts a little, pose to pose
         vPos=pos;vUv=a;vW=W;
         gl_Position=vec4(pos.x/(C.x*.5),-pos.y/(C.y*.5),-pos.z/2000.,1.);
       }`;
@@ -1148,7 +1149,7 @@
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
     const la = gl.getAttribLocation(pr, 'a'); gl.enableVertexAttribArray(la); gl.vertexAttribPointer(la, 2, gl.FLOAT, false, 0, 0);
     const U = (k) => gl.getUniformLocation(pr, k);
-    const uP = U('P'), uK = U('K'), uZ = U('Z'), uC = U('C');
+    const uP = U('P'), uK = U('K'), uPh = U('Ph'), uR = U('R'), uZ = U('Z'), uC = U('C');
     gl.uniform1f(U('D'), dir);
     // creases: many sizes, random directions; seeded so each receipt crumples its own way
     let sd = Math.floor(seed * 9301 + 49297); const rnd = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
@@ -1174,6 +1175,7 @@
     (img.decode ? img.decode() : Promise.resolve()).then(upload, upload);   // the texture is ready long before the entrance
     const soft = img.parentNode.querySelector('.soft');
     const easeOut = (x) => 1 - Math.pow(1 - x, 3);
+    const STEPS = 24, tilt = Array.from({ length: STEPS }, () => (rnd() - .5) * .14);
     let last = -1;
     return {
       draw(p) {                                                 // p 0 → 1
@@ -1181,17 +1183,24 @@
         img.style.visibility = p >= 1 || (!playing && p > 0) ? '' : 'hidden';
         cv.style.visibility = playing ? 'visible' : 'hidden';
         if (soft) soft.style.opacity = (.7 * Math.max(0, Math.min(1, (p - .8) / .2))).toFixed(3);
-        if (!playing || Math.abs(p - last) < 1e-4) return;
-        last = p;
+        const step = Math.floor(p * STEPS);
+        if (!playing || step === last) return;
+        last = step;
         const w = img.offsetWidth, h = img.offsetHeight, cw = w + 2 * PAD, ch = h + 2 * PAD;
         const k = Math.min(2, (devicePixelRatio || 1) * stageScale);
         const W = Math.round(cw * k), Hh = Math.round(ch * k);
         if (cv.width !== W || cv.height !== Hh) { cv.width = W; cv.height = Hh; gl.viewport(0, 0, W, Hh); }
-        // first it unrolls along the sheet, still fully crumpled; then the wrinkles slowly relax and it lies flat
-        const u = Math.min(1, p / .5);
-        gl.uniform1f(uP, easeOut(u) * .7 + u * .3);
-        const r = Math.max(0, Math.min(1, (p - .38) / .62));
-        gl.uniform1f(uK, 1 - r * r * (3 - 2 * r));
+        // stop-motion like the reference: STEPS poses, each held (≈15 per second); every pose is crumpled anew
+        // (crease phases shift), the sheet unrolls from its edge, then each pose is a bit flatter — the last ones keep
+        // only faint wrinkles before the flat receipt takes over
+        const i = Math.min(STEPS - 1, Math.floor(p * STEPS)), q = i / (STEPS - 1);
+        const u = Math.min(1, q / .45);
+        gl.uniform1f(uP, easeOut(u) * .75 + u * .25);
+        const r = Math.max(0, Math.min(1, (q - .4) / .6));
+        const K = q < .4 ? 1 : .06 + .94 * Math.pow(1 - r, 1.5);
+        gl.uniform1f(uK, K);
+        gl.uniform1f(uPh, i * 1.37 * Math.min(1, K * 1.4));
+        gl.uniform1f(uR, tilt[i] * K);
         gl.uniform2f(uZ, w, h); gl.uniform2f(uC, cw, ch);
         gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
@@ -1471,8 +1480,8 @@
       }
     };
     drawFly();
-    tl.to(flyP, { a: 1, duration: 2, ease: 'none', onUpdate: drawFly }, T_FLY)
-      .to(flyP, { b: 1, duration: 2, ease: 'none', onUpdate: drawFly }, T_FLY + .3);
+    tl.to(flyP, { a: 1, duration: 1.6, ease: 'none', onUpdate: drawFly }, T_FLY)
+      .to(flyP, { b: 1, duration: 1.6, ease: 'none', onUpdate: drawFly }, T_FLY + .25);
 
     // 5) buttons appear the way they react to hover: a liquid wave rises inside the pill.
     //    SEE CATALOG fills with matcha and stays; ARRANGE DELIVERY fills, then drains and leaves its outline.
