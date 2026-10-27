@@ -234,7 +234,8 @@
     // E kept small (~12 px at 188 px) so the spinning glyphs never reach the AUTHENTIC / GREEN labels above and below
     const E = Math.round(R * .09), XW = 60;
     const lx = o.align === 'right' ? x - w : x;
-    Object.assign(cell.style, { left: lx - XW + 'px', top: capTop - 1 - E + 'px', width: w + 2 * XW + 'px', height: R + 2 * E + 'px', '--fe': E + 'px' });
+    Object.assign(cell.style, { left: lx - XW + 'px', top: capTop - 1 - E + 'px', width: w + 2 * XW + 'px', height: R + 2 * E + 'px' });
+    cell.style.setProperty('--fe', E + 'px');                 // (a custom property is ignored by Object.assign on .style)
     const strip = document.createElement('div'); strip.className = 'strip';
     Object.assign(strip.style, { top: E + 'px', left: XW + 'px', width: w + 'px' });
     const glyphs = o.jp;
@@ -322,6 +323,10 @@
       for (const c of lbl.chars) c.sx = Math.max(.5, Math.min(1, (c.el.offsetWidth - 2 * FX + 1.5) / lbl.ks));
     }
   }
+  // expo.out that really arrives: GSAP's expo.out stops 0.1 % short and jumps the rest on the last frame —
+  // on a 3000+ px reel that was a visible 3–4 px twitch as each logo letter landed. Normalised, it lands smoothly.
+  const EXPO_K = 1 - Math.pow(2, -10);
+  const expoOut = (p) => p >= 1 ? 1 : (1 - Math.pow(2, -10 * p)) / EXPO_K;
   const outCubic = (u) => 1 - Math.pow(1 - u, 3);
   const outQuart = (u) => 1 - Math.pow(1 - u, 4);            // the logo reels' feel: quick spin, long soft landing
   const inOutSine = (u) => -(Math.cos(Math.PI * u) - 1) / 2;
@@ -1004,7 +1009,7 @@
         tl.to(l.cell, { autoAlpha: 1, duration: .15 }, at)
           // during the slow landing the kanji above the letter must not peek out: hide the glyph rows
           // as soon as the Latin letter fills most of the cell (and bring them back when scrubbing back)
-          .fromTo(l.strip, { y: 0 }, { y: -l.n * l.P, duration: SPIN, ease: 'expo.out', immediateRender: false }, at)
+          .fromTo(l.strip, { y: 0 }, { y: -l.n * l.P, duration: SPIN, ease: expoOut, immediateRender: false }, at)
           .fromTo(l.strip, { filter: 'blur(5px)' }, { filter: 'blur(0px)', duration: SPIN * .55, ease: 'power2.out', immediateRender: false }, at)
           .set(l.jp, { autoAlpha: 0 }, at + SPIN);
         l.land = at + SPIN;                                   // after this the window's mask is dropped (see render)
@@ -1089,7 +1094,7 @@
     loadTo(100, T_BURST - .1, .15, 'power1.out');
     tl.to(count, { scale: 1.08, duration: .1, yoyo: true, repeat: 1, transformOrigin: '0 100%' }, T_BURST);
     tl.set(hero, { filter: 'url(#mbHero)' }, T_BURST)
-      .to(hero, { x: 0, duration: .55, ease: 'expo.out' }, T_BURST)
+      .to(hero, { x: 0, duration: .55, ease: expoOut }, T_BURST)
       .fromTo('#mbHeroBlur', { attr: { stdDeviation: '90 0' } }, { attr: { stdDeviation: '0 0' }, duration: .55, ease: 'power3.out' }, T_BURST)
       .set(hero, { filter: 'none', willChange: 'auto' }, T_BURST + .57)
       // while the screen is dragged and flies in, the still frame (one layer with the shade + noise) is shown;
