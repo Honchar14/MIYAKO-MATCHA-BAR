@@ -97,13 +97,13 @@ body {
 .hero .shade { inset: 0; background: rgba(0,0,0,.75); }
 /* Figma: Multi noise, size 0.5, density 100%, opacity 30% — static on the main screen */
 .hero .noise { inset: 0 -260px -260px 0; opacity: 0; pointer-events: none; background-size: 256px 256px; mix-blend-mode: plus-lighter; will-change: transform, opacity; image-rendering: pixelated;
-  animation: grainBreath 1.2s ease-in-out infinite; }
+  animation: grainBreath 2s ease-in-out infinite; }
 /* three grain layers dissolve into each other (phases 0, 1/3, 2/3): brightness and contrast stay constant,
    the texture "boils" smoothly instead of jumping; a layer is moved only while it is fully transparent */
-.hero .noise.n2 { animation-delay: -.4s; }
-.hero .noise.n3 { animation-delay: -.8s; }
-@keyframes grainBreath { 0%, 100% { opacity: 0; } 50% { opacity: .16; } }
-@media (prefers-reduced-motion: reduce) { .hero .noise { animation: none; } .hero .noise.n1 { opacity: .18; } }
+.hero .noise.n2 { animation-delay: -.6667s; }
+.hero .noise.n3 { animation-delay: -1.3333s; }
+@keyframes grainBreath { 0%, 100% { opacity: 0; } 50% { opacity: .065; } }
+@media (prefers-reduced-motion: reduce) { .hero .noise { animation: none; } .hero .noise.n1 { opacity: .1; } }
 .vtext { width: 12px; }
 .vtext > span {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg);
@@ -145,6 +145,7 @@ body {
 .flyer { transform-style: preserve-3d; }
 .flyer img { position: absolute; inset: 0; width: 100%; height: 100%; }
 .flyer .soft { filter: blur(6.3px); opacity: .7; }
+.flyer canvas.crumple { position: absolute; inset: 0; width: 100%; height: 100%; visibility: hidden; pointer-events: none; }
 .icn { position: absolute; }
 .icn img { position: absolute; max-width: none; }
 .uline { clip-path: inset(-4px 100% -4px 0); }

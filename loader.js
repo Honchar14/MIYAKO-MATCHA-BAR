@@ -48,10 +48,24 @@
     // density (the tile is re-sized on resize). Three layers cross-fade in a loop (CSS opacity animation on the
     // compositor, phases 0/⅓/⅔): the sum of their weights is constant, so the grain "boils" smoothly instead of
     // jumping. Each layer gets a new random offset only at the moment it is fully transparent.
-    const NV = 110, NT = 256;
+    // Film-like grain instead of harsh per-pixel static: gaussian values, softened by a small [1 2 1] blur (grains
+    // read as soft ~2 px specks, not sharp dots), normalised to a gentle level; the layers' opacity keeps it faint.
+    const NT = 256, GM = 55, GS = 40;
     const n = document.createElement("canvas"); n.width = n.height = NT;
     const ng = n.getContext('2d'), nd = ng.createImageData(NT, NT);
-    for (let i = 0; i < nd.data.length; i += 4) { const v = Math.random() * NV; nd.data[i] = nd.data[i+1] = nd.data[i+2] = v; nd.data[i+3] = 255; }
+    const raw = new Float32Array(NT * NT);
+    for (let i = 0; i < raw.length; i++) { const u = Math.random() || 1e-9, v = Math.random(); raw[i] = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+    const W = [1, 2, 1], soft = new Float32Array(NT * NT);
+    for (let y = 0; y < NT; y++) for (let x = 0; x < NT; x++) {
+      let a = 0;
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) a += W[i + 1] * W[j + 1] * raw[((y + j + NT) % NT) * NT + (x + i + NT) % NT];
+      soft[y * NT + x] = a / 16;
+    }
+    let mu = 0, sd = 0; for (const v of soft) mu += v; mu /= soft.length; for (const v of soft) sd += (v - mu) ** 2; sd = Math.sqrt(sd / soft.length);
+    for (let i = 0, k = 0; k < soft.length; i += 4, k++) {
+      const v = Math.max(0, Math.min(255, GM + (soft[k] - mu) / sd * GS));
+      nd.data[i] = nd.data[i+1] = nd.data[i+2] = v; nd.data[i+3] = 255;
+    }
     ng.putImageData(nd, 0, 0);
     const layers = [...document.querySelectorAll('.hero .noise')], url = `url(${n.toDataURL()})`;
     const devPx = () => stageScale * (devicePixelRatio || 1);          // stage px → physical px
@@ -1089,6 +1103,84 @@
     window.__cursorSVG = svg;
   })();
 
+  // ---------- receipts: crumpled paper that unfolds and smooths out (WebGL, only while it plays) ----------
+  // The sheet appears from one edge with a ragged front; just behind the front it is crumpled — faceted like real
+  // crushed paper (a Voronoi cell = one tilted facet, sharp creases between them, a finer second layer), lit from
+  // the top left and slightly warped — and it flattens out as the front moves on. At rest the plain <img> is shown.
+  function crumple(img, dir, seed) {
+    const cv = document.createElement('canvas');
+    cv.className = 'crumple';
+    img.after(cv);
+    const gl = cv.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: false });
+    if (!gl) { cv.remove(); return null; }
+    const VS = 'attribute vec2 a;varying vec2 v;void main(){v=vec2(a.x*.5+.5,.5-a.y*.5);gl_Position=vec4(a,0.,1.);}';
+    const FS = `precision highp float;varying vec2 v;uniform sampler2D T;uniform float P,D,S;uniform vec2 Z;
+      vec2 h2(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p+S)*43758.5453);}
+      // nearest cell's facet slope + distance to the next cell (crease)
+      vec3 facet(vec2 p){vec2 i=floor(p),f=fract(p);float d1=9.,d2=9.;vec2 c=vec2(0.);
+        for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 g=vec2(float(x),float(y));vec2 r=g+h2(i+g)-f;float d=dot(r,r);
+          if(d<d1){d2=d1;d1=d;c=i+g;}else if(d<d2){d2=d;}}
+        return vec3(h2(c*1.7+3.1)*2.-1.,sqrt(d2)-sqrt(d1));}
+      void main(){
+        float yd=D>0.?v.y:1.-v.y;
+        vec2 px=v*Z;
+        vec3 A=facet(px/58.),B=facet(px/21.+7.3);
+        float band=.42,front=P*(1.+band)+(A.x*.012+B.y*.006);
+        if(yd>front){gl_FragColor=vec4(0.);return;}
+        float fl=clamp((front-yd)/band,0.,1.);
+        float c=1.-fl*fl*(3.-2.*fl);                               // crumple: full at the front, gone behind it
+        vec2 g=(A.xy+B.xy*.55)*c;
+        vec2 uv=v+g*2.4/Z;                                          // a few px of warp
+        if(uv.x<0.||uv.x>1.||uv.y<0.||uv.y>1.){gl_FragColor=vec4(0.);return;}
+        vec4 col=texture2D(T,uv);
+        vec3 n=normalize(vec3(-g*.75,1.));vec3 L=normalize(vec3(-.45,-.6,.66));
+        float sh=clamp(dot(n,L)/L.z,.62,1.12);
+        float crease=(1.-smoothstep(0.,.05,A.z))*.3+(1.-smoothstep(0.,.06,B.z))*.16;
+        col.rgb*=mix(1.,sh,.9*c)*(1.-crease*c);
+        col*=smoothstep(0.,.025,front-yd)*.35+.65*step(0.,front-yd);   // a soft lip on the front edge
+        gl_FragColor=col;}`;
+    const sh = (t, src) => { const o = gl.createShader(t); gl.shaderSource(o, src); gl.compileShader(o); return o; };
+    const pr = gl.createProgram();
+    gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) { cv.remove(); return null; }
+    gl.useProgram(pr);
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const la = gl.getAttribLocation(pr, 'a'); gl.enableVertexAttribArray(la); gl.vertexAttribPointer(la, 2, gl.FLOAT, false, 0, 0);
+    const U = (k) => gl.getUniformLocation(pr, k);
+    const uP = U('P'), uD = U('D'), uS = U('S'), uZ = U('Z');
+    gl.uniform1f(uD, dir); gl.uniform1f(uS, seed);
+    let tex = null;
+    const upload = () => {
+      if (tex || !img.complete || !img.naturalWidth) return !!tex;
+      tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T].forEach(k => gl.texParameteri(gl.TEXTURE_2D, k, gl.CLAMP_TO_EDGE));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      return true;
+    };
+    (img.decode ? img.decode() : Promise.resolve()).then(upload, upload);   // the texture is ready long before the entrance
+    const soft = img.parentNode.querySelector('.soft');
+    let last = -1;
+    return {
+      draw(p) {                                                 // p 0 → 1
+        const playing = p > 0 && p < 1 && upload();
+        img.style.visibility = p >= 1 || (!playing && p > 0) ? '' : 'hidden';
+        cv.style.visibility = playing ? 'visible' : 'hidden';
+        if (soft) soft.style.opacity = (.7 * Math.max(0, Math.min(1, (p - .55) / .45))).toFixed(3);
+        if (!playing || Math.abs(p - last) < 1e-4) return;
+        last = p;
+        const w = img.offsetWidth, h = img.offsetHeight, k = Math.min(2, (devicePixelRatio || 1) * stageScale);
+        const W = Math.round(w * k), Hh = Math.round(h * k);
+        if (cv.width !== W || cv.height !== Hh) { cv.width = W; cv.height = Hh; gl.viewport(0, 0, W, Hh); }
+        gl.uniform1f(uP, p); gl.uniform2f(uZ, w, h);
+        gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      },
+    };
+  }
+
   // ---------- timeline ----------
   function build(ch, toss, pull, letters, labels, dxL, dxR, H) {
     const FLOOR = 1037;
@@ -1128,8 +1220,8 @@
       .set(H.letters.map(l => l.strip), { y: 0 }, 0)
       .set(H.letters.map(l => l.cell), { autoAlpha: 0 }, 0)
       .set(H.letters.flatMap(l => l.jp), { autoAlpha: 1 }, 0)
-      .set('#fly1', { autoAlpha: 0, y: -140, rotation: -4, clipPath: 'inset(-20px -20px 100% -20px)' }, 0)
-      .set('#fly2', { autoAlpha: 0, x: 380, y: 60, rotation: 22 }, 0)
+      .set(['#fly1', '#fly2'], { opacity: 1, x: 0, rotation: 0 }, 0)
+      .set('#fly1', { y: -36 }, 0).set('#fly2', { y: 36 }, 0)
       .set('#uline', { clipPath: 'inset(-4px 100% -4px 0)' }, 0)
       .set(H.btns.map(b => b.pill), { attr: { 'stroke-dashoffset': 0 } }, 0)
       .set(H.btns.map(b => b.svg), { opacity: 0 }, 0)
@@ -1341,13 +1433,24 @@
     tl.to(IC, { g: 1, duration: .25, ease: 'power1.out', onUpdate: renderIcons }, T_GREEN);
     scr.forEach((_, i) => tl.to(IC.sc[i], { p: 1, duration: .14, ease: 'power1.in', onUpdate: renderIcons }, T_GREEN + .1 + i * .08));
 
-    // 4) receipts: the straight one is printed down from the top edge, the tilted one is slapped on from the right
+    // 4) receipts: crumpled paper that unfolds and smooths out — the top one from the top down, the lower one from the
+    //    bottom up (WebGL while it plays; the plain image at rest). Without WebGL: a plain reveal from the same edge.
     const T_FLY = T_SORRY;
     phase(T_FLY, 'чеки');
-    const flyP = { p: 0 };
-    tl.to(flyP, { p: 1, duration: 1.1, ease: 'power3.out', onUpdate: () => { $('#fly1').style.clipPath = flyP.p >= 1 ? 'none' : `inset(-20px -20px ${(100 - flyP.p * 100).toFixed(2)}% -20px)`; } }, T_FLY)
-      .fromTo('#fly1', { autoAlpha: 1, y: -140, rotation: -4 }, { y: 0, rotation: 0, duration: 1.2, ease: 'power3.out', immediateRender: false }, T_FLY)
-      .fromTo('#fly2', { autoAlpha: 0, x: 380, y: 60, rotation: 22 }, { autoAlpha: 1, x: 0, y: 0, rotation: 0, duration: 1.05, ease: 'back.out(1.5)', immediateRender: false }, T_FLY + .35);
+    const R1 = crumple($('#fly1 img:not(.soft)'), 1, 1.3), R2 = crumple($('#fly2 img:not(.soft)'), -1, 4.7);
+    const flyP = { a: 0, b: 0 };
+    const drawFly = () => {
+      for (const [R, el, p, side] of [[R1, $('#fly1'), flyP.a, 'bottom'], [R2, $('#fly2'), flyP.b, 'top']]) {
+        el.style.visibility = p > 0 ? 'visible' : 'hidden';
+        if (R) R.draw(p);
+        else el.style.clipPath = p >= 1 ? 'none' : (side === 'bottom' ? `inset(-20px -20px ${(100 - p * 100).toFixed(2)}% -20px)` : `inset(${(100 - p * 100).toFixed(2)}% -20px -20px -20px)`);
+      }
+    };
+    drawFly();
+    tl.to(flyP, { a: 1, duration: 1.45, ease: 'power2.out', onUpdate: drawFly }, T_FLY)
+      .to(flyP, { b: 1, duration: 1.45, ease: 'power2.out', onUpdate: drawFly }, T_FLY + .3)
+      .fromTo('#fly1', { y: -36 }, { y: 0, duration: 1.45, ease: 'power3.out', immediateRender: false }, T_FLY)
+      .fromTo('#fly2', { y: 36 }, { y: 0, duration: 1.45, ease: 'power3.out', immediateRender: false }, T_FLY + .3);
 
     // 5) buttons appear the way they react to hover: a liquid wave rises inside the pill.
     //    SEE CATALOG fills with matcha and stays; ARRANGE DELIVERY fills, then drains and leaves its outline.
@@ -1388,6 +1491,7 @@
 
     // ---------- drive: one render per animation frame (the whisk loop keeps running after the timeline ends) ----------
     function render(now) {
+      drawFly();                                               // receipts follow the timeline even when it is scrubbed
       renderFrame(now);
       placeToss(now);
       renderClips(now);
