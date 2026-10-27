@@ -543,10 +543,23 @@
   let hwN = 0;
   function handwriteOverlay(lbl, font = COPY_FONT, lh = 16) {
     const NS = 'http://www.w3.org/2000/svg';
+    const fsz = parseFloat((font.match(/([\d.]+)px/) || [0, 16])[1]), K = fsz / 16;   // brush scales with the type size
+    // static copy (no hover): its letters never roll, so they need no feathered mask — a mask per letter made the
+    // rotated, semi-transparent manifesto rasterise letter by letter (soft / pixelated glyphs)
+    if (lbl.still) lbl.p.classList.add('still');
     const host = lbl.chars[0].el.offsetParent;
     ctx.font = font;
     const fm = ctx.measureText('H');
-    const baseOff = (lh - (fm.fontBoundingBoxAscent + fm.fontBoundingBoxDescent)) / 2 + fm.fontBoundingBoxAscent;
+    let baseOff = (lh - (fm.fontBoundingBoxAscent + fm.fontBoundingBoxDescent)) / 2 + fm.fontBoundingBoxAscent;
+    if (lh % 1) {
+      // fractional line height (22px × 1.08): the browser snaps the line box, so take the live baseline from the layout
+      // (a zero-size inline-block sits on the baseline) — the twin then lands exactly on the live letters
+      const c0 = lbl.chars[0].el, pr = document.createElement('span');
+      pr.style.cssText = 'display:inline-block;width:0;height:0';
+      c0.appendChild(pr);
+      baseOff = (pr.getBoundingClientRect().top - c0.getBoundingClientRect().top) / stageScale - (lbl.fe || 0);
+      pr.remove();
+    }
     const id = 'hwm' + (hwN++);
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('class', 'hwo'); svg.setAttribute('aria-hidden', 'true');
@@ -555,7 +568,7 @@
     mask.setAttribute('id', id); mask.setAttribute('maskUnits', 'userSpaceOnUse');
     ['x', 'y'].forEach(k => mask.setAttribute(k, -50)); ['width', 'height'].forEach(k => mask.setAttribute(k, 2000));
     const g = document.createElementNS(NS, 'g');
-    Object.entries({ fill: 'none', stroke: '#fff', 'stroke-width': 4.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }).forEach(([k, v]) => g.setAttribute(k, v));
+    Object.entries({ fill: 'none', stroke: '#fff', 'stroke-width': (4.4 * K).toFixed(2), 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }).forEach(([k, v]) => g.setAttribute(k, v));
     mask.appendChild(g); svg.appendChild(mask);
     const tg = document.createElementNS(NS, 'g'); tg.setAttribute('mask', `url(#${id})`); svg.appendChild(tg);
     let d = '';
@@ -580,7 +593,7 @@
       t.style.font = font; t.style.fill = getComputedStyle(c.l).color;
       tg.appendChild(t);
       const sk = SKEL[ch]; if (!sk) continue;
-      const m = ctx.measureText(ch), IN = 1.1;
+      const m = ctx.measureText(ch), IN = 1.1 * K;
       const bx0 = x - m.actualBoundingBoxLeft + IN, bx1 = x + m.actualBoundingBoxRight - IN;
       const by0 = base - m.actualBoundingBoxAscent + IN, by1 = base + m.actualBoundingBoxDescent - IN;
       const pts = sk.flat(), gx0 = Math.min(...pts.map(q => q[0])), gx1 = Math.max(...pts.map(q => q[0])), gy0 = Math.min(...pts.map(q => q[1])), gy1 = Math.max(...pts.map(q => q[1]));
@@ -709,11 +722,17 @@
     // after layout: kanji fitted to their letters, Japanese layers positioned, nav underlines on the Japanese ink edges
     fitSlots();
     duals.forEach(d => d.place());
-    document.querySelectorAll('#vtexts .vtext > span').forEach(sp => {
-      sp.style.transform = `translate(${-Math.round(sp.offsetWidth / 2)}px, ${-Math.round(sp.offsetHeight / 2)}px) rotate(-90deg)`;
+    // vertical manifesto: once written, each line is one plain run of text (no per-letter boxes) — see snapVert
+    H.vert.forEach(l => {
+      const pl = document.createElement('span'); pl.className = 'pl'; pl.textContent = l.text; pl.setAttribute('aria-hidden', 'true');
+      l.p.appendChild(pl); l.pl = pl;
     });
+    snapVert();
     // vertical manifesto, addresses and footer are hand-written in the intro (like 抹茶 and "Sorry coffe…")
-    H.hw = [...H.vert, ...H.addr, ...H.foot.map(f => f.l)].map(l => { l.instant = true; return handwriteOverlay(l); });
+    H.hw = [...H.vert, ...H.addr, ...H.foot.map(f => f.l)].map(l => { l.instant = true; l.still = true; return handwriteOverlay(l); });
+    // AUTHENTIC / JAPANESE / GREEN / TEA are written stroke by stroke, like 抹茶 (loader and main screen)
+    H.hwLabels = H.labels.map(d => { d.E.instant = true; return handwriteOverlay(d.E, SMALL_FONT, LBL_LH); });
+    H.hwLoader = labels.map(l => { l.instant = true; return handwriteOverlay(l, SMALL_FONT, LBL_LH); });
     H.nav.forEach(fitUnderline);
 
     // kanji at the top: the loader's stroke writer, at the main screen's 16px size
@@ -726,6 +745,25 @@
 
     build(ch, toss, pull, letters, labels, dxL, dxR, H);
   }
+  // Vertical manifesto, rotated −90°: the baseline (a vertical line on screen) and the start of each line are put on
+  // whole DEVICE pixels for the current window size and screen density (e.g. Windows 150 %), so the rotated glyphs are
+  // not resampled between pixels — they stay as sharp as the horizontal text. Measured against the resting hero.
+  function snapVert() {
+    const dpr = devicePixelRatio || 1, st = stage.getBoundingClientRect(), hr = hero.getBoundingClientRect();
+    document.querySelectorAll('#vtexts .vtext > span').forEach(sp => {
+      const bx = -Math.round(sp.offsetWidth / 2), by = -Math.round(sp.offsetHeight / 2);
+      sp.style.transform = `translate(${bx}px, ${by}px) rotate(-90deg)`;
+      const pr = document.createElement('span'); pr.style.cssText = 'display:inline-block;width:0;height:0';
+      sp.appendChild(pr);
+      const r = pr.getBoundingClientRect(); pr.remove();
+      const snap = (v0, v) => { const dev = (v0 + (v) * stageScale) * dpr; return (Math.round(dev) - dev) / dpr / stageScale; };
+      const dx = snap(st.left, (r.left - hr.left) / stageScale), dy = snap(st.top, (r.top - hr.top) / stageScale);
+      sp.style.transform = `translate(${(bx + dx).toFixed(3)}px, ${(by + dy).toFixed(3)}px) rotate(-90deg)`;
+    });
+  }
+  addEventListener('resize', () => snapVert());
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener?.('change', () => snapVert());
+
   // nav underline: from the ink of the first Japanese letter to the ink of the last one,
   // measured with the font the browser actually uses for those letters
   function fitUnderline(n) {
@@ -973,8 +1011,9 @@
     };
     spinReels(letters, T_LOGO);
     const T_LOGO_END = T_LOGO + 5 * .09 + SPIN;
-    // labels: letter by letter, each flips through kanji 5–7 times (50 ms apiece) and lands
-    labels.forEach((l, i) => { l.t0 = T_LOGO + .35 + i * .1; });
+    // labels: written stroke by stroke with a brush, like 抹茶 (each word in its own time, slightly staggered)
+    const lblDur = (o) => Math.max(.5, Math.min(1.2, .3 + .08 * o.n));
+    H.hwLoader.forEach((o, i) => { o.w0 = T_LOGO + .35 + i * .12; o.lbl.t0 = o.w0 + lblDur(o); });
 
     // 4 — whisking (clip frames 1–36) right after the drawing, then the toss + stand-up (frames 37–97), 30 fps.
     //     Clip frame 1 is the drawn character itself, so the hand-over from the SVG is invisible.
@@ -1082,7 +1121,7 @@
     // 1) MIY / AKO spin in like reels and the labels flip in letter by letter — exactly as on the loader
     const T_HLOGO = T_MAIN;
     spinReels(H.letters, T_HLOGO);
-    H.labels.forEach((d, i) => { d.E.t0 = T_HLOGO + .35 + i * .1; });
+    H.hwLabels.forEach((o, i) => { o.w0 = T_HLOGO + .35 + i * .12; o.lbl.t0 = o.w0 + lblDur(o); });
 
     // 2) all the small copy, letter by letter through kanji (top-left first, then down and across)
     const T_SMALL = T_MAIN + .2;
@@ -1179,6 +1218,9 @@
       for (const l of H.small) renderScramble(l, now);
       for (const b of H.btns) renderScramble(b.l, now);
       for (const o of H.hw) o.render(now);
+      for (const l of H.vert) { const on = now >= l.t0; if (on !== l.plain) { l.plain = on; l.p.classList.toggle('plain', on); } }
+      for (const o of H.hwLabels) o.render(now);
+      for (const o of H.hwLoader) o.render(now);
     }
     window.__render = render;
     gsap.ticker.add(() => render(tl.time()));

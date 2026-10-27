@@ -69,6 +69,13 @@ body {
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fe), #000 calc(100% - var(--fe)), transparent 100%);
           mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fe), #000 calc(100% - var(--fe)), transparent 100%); }
 .scr .l { visibility: hidden; }
+/* static copy (manifesto, addresses, footer): letters never roll, so no per-letter mask — keeps the text crisp vector type */
+.scr.still .ch { -webkit-mask-image: none; mask-image: none; }
+/* vertical manifesto after it is written: one plain run of text instead of per-letter boxes (same metrics: no kerning,
+   like the separate letter boxes), so the rotated line is drawn as ordinary type */
+.vtext .pl { display: none; font-kerning: none; }
+.vtext .plain .ch, .vtext .plain .hwo { display: none; }
+.vtext .plain .pl { display: inline; }
 .scr .ol { position: absolute; left: var(--fx); top: var(--fe); visibility: hidden; white-space: pre; }
 .scr .k, .scr .ok { position: absolute; left: 50%; transform: translateX(-50%); font-family: var(--f-jp); font-weight: 700; letter-spacing: 0; color: inherit; visibility: hidden; white-space: nowrap; }
 .nav .scr .k, .nav .scr .ok { color: var(--matcha); }
