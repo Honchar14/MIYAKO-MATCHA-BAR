@@ -1085,13 +1085,13 @@
     window.__cursorSVG = svg;
   })();
 
-  // ---------- receipts: a crumpled ball of paper that springs open into the flat receipt (after the Big Cartel posters) ----
-  // The sheet is a 3D mesh (40×100 quads). At the start it is a small wrinkled ball: the sheet scaled down hard and
-  // folded by ~20 sharp creases of many sizes (triangle waves in random directions) in 3D, so it clumps; lit from the
-  // top left with soft self-shadow by depth, the back of the paper grey. It springs open fast (most of the size in the
-  // first half), the wrinkles relax more slowly and the last soft creases fade as it lies flat. Full frame rate;
-  // at rest the plain <img> is shown.
-  function crumple(img, dir, seed, ballY = 0) {
+  // ---------- receipts: crumpled paper that unrolls from one edge into the flat receipt (after the Big Cartel posters) ----
+  // The sheet is a 3D mesh (40×100 quads) folded by ~20 sharp creases of many sizes (triangle waves in random
+  // directions). It starts bunched up and crumpled at the start edge (startY, sheet px from the centre); a front runs
+  // along the sheet and behind it the paper unrolls to its flat place while its wrinkles relax a little later.
+  // Lit from the top left, matte, deep folds in shadow, the back of the paper grey. Full frame rate; at rest the plain
+  // <img> is shown.
+  function crumple(img, dir, seed, startY) {
     const PAD = 110;                                              // room around the sheet for the wrinkles
     const cv = document.createElement('canvas');
     cv.className = 'crumple';
@@ -1100,17 +1100,23 @@
     const gl = cv.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: true, depth: true });
     if (!gl || !gl.getExtension('OES_standard_derivatives')) { cv.remove(); return null; }
     const NF = 20;
-    const VS = `precision highp float;attribute vec2 a;uniform float S,W,R,O;uniform vec2 Z,C;uniform vec4 F[${NF}];uniform vec3 A[${NF}];
+    const VS = `precision highp float;attribute vec2 a;uniform float P,D,O;uniform vec2 Z,C;uniform vec4 F[${NF}];uniform vec3 A[${NF}];
       varying vec2 vUv;varying vec3 vPos;varying float vW;
       float tri(float t){return abs(fract(t)-.5)*2.-.5;}
       void main(){
         vec2 fp=(a-.5)*Z;                                           // flat position: stage px, centred, y down
+        // distance along the sheet from the anchor (the start edge, or where the sheet comes on screen): 0 … 1
+        float span=D>0.?Z.y*.5-O:O+Z.y*.5;
+        float sd=D>0.?(fp.y-O)/span:(O-fp.y)/span;
+        float f=max(0.,P*1.45-.1);                                    // the front: where the crumpled roll is now
+        // ahead of the front the paper is still bunched up in a crumpled roll that travels with the front
+        float t=smoothstep(f-.03,f+.1,sd);
+        float sd2=sd-(sd-f)*t*.95;
+        float W=smoothstep(f-.36,f+.02,sd);                           // wrinkled at the roll, relaxing behind it
         vec3 fold=vec3(0.);
         for(int i=0;i<${NF};i++){fold+=A[i]*tri(dot(fp,F[i].xy)*F[i].z+F[i].w);}
-        vec2 sc=mix(vec2(.27,.12),vec2(1.),S);                      // the ball is wider than tall: the receipt is long
-        vec2 anc=vec2(0.,O);                                       // the ball forms around this point of the sheet
-        vec3 pos=vec3(anc+(fp-anc)*sc,0.)+fold*W;
-        float cr=cos(R),sr=sin(R);pos.xy=anc+mat2(cr,sr,-sr,cr)*(pos.xy-anc);  // a little spin as it opens
+        vec2 q=vec2(fp.x*mix(1.,.42,t),D>0.?O+sd2*span:O-sd2*span);
+        vec3 pos=vec3(q,0.)+fold*W*(.6+.5*t);
         vPos=pos;vUv=a;vW=W;
         gl_Position=vec4(pos.x/(C.x*.5),-pos.y/(C.y*.5),-pos.z/2000.,1.);
       }`;
@@ -1142,7 +1148,8 @@
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
     const la = gl.getAttribLocation(pr, 'a'); gl.enableVertexAttribArray(la); gl.vertexAttribPointer(la, 2, gl.FLOAT, false, 0, 0);
     const U = (k) => gl.getUniformLocation(pr, k);
-    const uS = U('S'), uW = U('W'), uR = U('R'), uZ = U('Z'), uC = U('C');
+    const uP = U('P'), uZ = U('Z'), uC = U('C');
+    gl.uniform1f(U('D'), dir);
     // creases: many sizes, random directions; seeded so each receipt crumples its own way
     let sd = Math.floor(seed * 9301 + 49297); const rnd = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
     const Fv = [], Av = [];
@@ -1152,8 +1159,7 @@
       const amp = 7 + lam * .3;
       Av.push((rnd() - .5) * amp * 1.1, (rnd() - .5) * amp * 1.3, (rnd() - .4) * amp * 1.9);
     }
-    gl.uniform4fv(U('F'), new Float32Array(Fv)); gl.uniform3fv(U('A'), new Float32Array(Av)); gl.uniform1f(U('O'), ballY);
-    const spin = (rnd() - .5) * 1.2;
+    gl.uniform4fv(U('F'), new Float32Array(Fv)); gl.uniform3fv(U('A'), new Float32Array(Av)); gl.uniform1f(U('O'), startY);
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
     let tex = null;
     const upload = () => {
@@ -1181,10 +1187,7 @@
         const k = Math.min(2, (devicePixelRatio || 1) * stageScale);
         const W = Math.round(cw * k), Hh = Math.round(ch * k);
         if (cv.width !== W || cv.height !== Hh) { cv.width = W; cv.height = Hh; gl.viewport(0, 0, W, Hh); }
-        // ball holds for a moment, springs open (size) fast, wrinkles relax slower and fade out at the end
-        const open = easeOut(Math.max(0, Math.min(1, (p - .12) / .48)));
-        const wr = Math.pow(1 - Math.max(0, Math.min(1, (p - .1) / .9)), 1.7);
-        gl.uniform1f(uS, open); gl.uniform1f(uW, wr); gl.uniform1f(uR, spin * (1 - open));
+        gl.uniform1f(uP, easeOut(p) * .85 + p * .15);            // unrolls fast, settles softly
         gl.uniform2f(uZ, w, h); gl.uniform2f(uC, cw, ch);
         gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
@@ -1235,7 +1238,7 @@
       .set(H.letters.map(l => l.cell), { autoAlpha: 0 }, 0)
       .set(H.letters.flatMap(l => l.jp), { autoAlpha: 1 }, 0)
       .set(['#fly1', '#fly2'], { opacity: 1, x: 0, rotation: 0 }, 0)
-      .set('#fly1', { y: -460 }, 0).set('#fly2', { y: 420 }, 0)
+      .set(['#fly1', '#fly2'], { y: 0 }, 0)
       .set('#uline', { clipPath: 'inset(-4px 100% -4px 0)' }, 0)
       .set(H.btns.map(b => b.pill), { attr: { 'stroke-dashoffset': 0 } }, 0)
       .set(H.btns.map(b => b.svg), { opacity: 0 }, 0)
@@ -1448,12 +1451,13 @@
     tl.to(IC, { g: 1, duration: .25, ease: 'power1.out', onUpdate: renderIcons }, T_GREEN);
     scr.forEach((_, i) => tl.to(IC.sc[i], { p: 1, duration: .14, ease: 'power1.in', onUpdate: renderIcons }, T_GREEN + .1 + i * .08));
 
-    // 4) receipts: a crumpled ball flies in (the top one from above, the lower one from below) and springs open into
-    //    the flat receipt, like the Big Cartel posters (WebGL while it plays; the plain image at rest).
+    // 4) receipts: each appears crumpled at its start edge and unrolls along the sheet into the flat receipt — the top
+    //    one from the top down, the lower one from the bottom up (WebGL while it plays; the plain image at rest).
     //    Without WebGL: a plain reveal from the same edge.
     const T_FLY = T_SORRY;
     phase(T_FLY, 'чеки');
-    const R1 = crumple($('#fly1 img:not(.soft)'), 1, 1.3), R2 = crumple($('#fly2 img:not(.soft)'), -1, 4.7, -230);   // the lower one runs off the screen: its ball forms higher up, where it is visible
+    // unroll from: the top one just inside its top edge (cut by the screen), the lower one where it comes on screen
+    const R1 = crumple($('#fly1 img:not(.soft)'), 1, 1.3, -403.5 + 50), R2 = crumple($('#fly2 img:not(.soft)'), -1, 4.7, 40);
     const flyP = { a: 0, b: 0 };
     const drawFly = () => {
       for (const [R, el, p, side] of [[R1, $('#fly1'), flyP.a, 'bottom'], [R2, $('#fly2'), flyP.b, 'top']]) {
@@ -1463,11 +1467,8 @@
       }
     };
     drawFly();
-    // the ball flies in from its edge of the screen while it springs open
-    tl.to(flyP, { a: 1, duration: .95, ease: 'none', onUpdate: drawFly }, T_FLY)
-      .to(flyP, { b: 1, duration: .95, ease: 'none', onUpdate: drawFly }, T_FLY + .18)
-      .fromTo('#fly1', { y: -460 }, { y: 0, duration: .5, ease: 'power3.out', immediateRender: false }, T_FLY)
-      .fromTo('#fly2', { y: 420 }, { y: 0, duration: .5, ease: 'power3.out', immediateRender: false }, T_FLY + .18);
+    tl.to(flyP, { a: 1, duration: 1.1, ease: 'none', onUpdate: drawFly }, T_FLY)
+      .to(flyP, { b: 1, duration: 1.1, ease: 'none', onUpdate: drawFly }, T_FLY + .2);
 
     // 5) buttons appear the way they react to hover: a liquid wave rises inside the pill.
     //    SEE CATALOG fills with matcha and stays; ARRANGE DELIVERY fills, then drains and leaves its outline.
