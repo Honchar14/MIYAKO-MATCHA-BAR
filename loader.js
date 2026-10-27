@@ -899,6 +899,8 @@
     H.hw = [...H.vert, ...H.addr, ...H.foot.map(f => f.l)].map(l => { l.instant = true; l.still = true; return handwriteOverlay(l); });
     // AUTHENTIC / JAPANESE / GREEN / TEA are written stroke by stroke, like 抹茶 (loader and main screen)
     H.hwLabels = H.labels.map(d => { d.E.instant = true; return handwriteOverlay(d.E, SMALL_FONT, LBL_LH); });
+    // the nav is hand-written in the intro too, like the left column
+    H.hwNav = H.nav.map(n => { n.d.E.instant = true; n.d.E.still = true; return handwriteOverlay(n.d.E); });
     H.hwLoader = labels.map(l => { l.instant = true; return handwriteOverlay(l, SMALL_FONT, LBL_LH); });
     H.nav.forEach(fitUnderline);
 
@@ -1083,53 +1085,77 @@
     window.__cursorSVG = svg;
   })();
 
-  // ---------- receipts: crumpled paper that unfolds and smooths out (WebGL, only while it plays) ----------
-  // The sheet appears from one edge with a ragged front; just behind the front it is crumpled — faceted like real
-  // crushed paper (a Voronoi cell = one tilted facet, sharp creases between them, a finer second layer), lit from
-  // the top left and slightly warped — and it flattens out as the front moves on. At rest the plain <img> is shown.
-  function crumple(img, dir, seed) {
+  // ---------- receipts: a crumpled ball of paper that unfolds into the flat receipt (WebGL mesh, only while it plays) ----
+  // The sheet is a 3D mesh (30×72 quads). Crumpled, every vertex is pulled into a small ball at the start edge and
+  // folded by a dozen sharp creases (triangle waves in random directions → flat facets with hard ridges, lit from the
+  // top left, back side grey). A front runs along the sheet (top → down or bottom → up): behind it the paper opens
+  // out to its flat place. Rendered at the display's full frame rate; at rest the plain <img> is shown.
+  function crumple(img, dir, seed, inset = 70) {
+    const PAD = 90;                                               // room around the sheet for the ball and the folds
     const cv = document.createElement('canvas');
     cv.className = 'crumple';
+    Object.assign(cv.style, { left: -PAD + 'px', top: -PAD + 'px', width: `calc(100% + ${2 * PAD}px)`, height: `calc(100% + ${2 * PAD}px)` });
     img.after(cv);
-    const gl = cv.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: false });
-    if (!gl) { cv.remove(); return null; }
-    const VS = 'attribute vec2 a;varying vec2 v;void main(){v=vec2(a.x*.5+.5,.5-a.y*.5);gl_Position=vec4(a,0.,1.);}';
-    const FS = `precision highp float;varying vec2 v;uniform sampler2D T;uniform float P,D,S;uniform vec2 Z;
-      vec2 h2(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p+S)*43758.5453);}
-      // nearest cell's facet slope + distance to the next cell (crease)
-      vec3 facet(vec2 p){vec2 i=floor(p),f=fract(p);float d1=9.,d2=9.;vec2 c=vec2(0.);
-        for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 g=vec2(float(x),float(y));vec2 r=g+h2(i+g)-f;float d=dot(r,r);
-          if(d<d1){d2=d1;d1=d;c=i+g;}else if(d<d2){d2=d;}}
-        return vec3(h2(c*1.7+3.1)*2.-1.,sqrt(d2)-sqrt(d1));}
+    const gl = cv.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: true, depth: true });
+    if (!gl || !gl.getExtension('OES_standard_derivatives')) { cv.remove(); return null; }
+    const NF = 12;
+    const VS = `precision highp float;attribute vec2 a;uniform float P,D,G,I;uniform vec2 Z,C;uniform vec4 F[${NF}];uniform vec3 A[${NF}];
+      varying vec2 vUv;varying vec3 vPos;varying float vC;
+      float tri(float t){return abs(fract(t)-.5)*2.-.5;}
       void main(){
-        float yd=D>0.?v.y:1.-v.y;
-        vec2 px=v*Z;
-        vec3 A=facet(px/58.),B=facet(px/21.+7.3);
-        float band=.42,front=P*(1.+band)+(A.x*.012+B.y*.006);
-        if(yd>front){gl_FragColor=vec4(0.);return;}
-        float fl=clamp((front-yd)/band,0.,1.);
-        float c=1.-fl*fl*(3.-2.*fl);                               // crumple: full at the front, gone behind it
-        vec2 g=(A.xy+B.xy*.55)*c;
-        vec2 uv=v+g*2.4/Z;                                          // a few px of warp
-        if(uv.x<0.||uv.x>1.||uv.y<0.||uv.y>1.){gl_FragColor=vec4(0.);return;}
-        vec4 col=texture2D(T,uv);
-        vec3 n=normalize(vec3(-g*.75,1.));vec3 L=normalize(vec3(-.45,-.6,.66));
-        float sh=clamp(dot(n,L)/L.z,.62,1.12);
-        float crease=(1.-smoothstep(0.,.05,A.z))*.3+(1.-smoothstep(0.,.06,B.z))*.16;
-        col.rgb*=mix(1.,sh,.9*c)*(1.-crease*c);
-        col*=smoothstep(0.,.025,front-yd)*.35+.65*step(0.,front-yd);   // a soft lip on the front edge
-        gl_FragColor=col;}`;
-    const sh = (t, src) => { const o = gl.createShader(t); gl.shaderSource(o, src); gl.compileShader(o); return o; };
+        vec2 fp=(a-.5)*Z;                                         // stage px, centred on the sheet, y down
+        float yd=D>0.?a.y:1.-a.y;
+        float band=.38,k=clamp((P*(1.+band)-yd)/band,0.,1.);
+        float c=1.-k*k*(3.-2.*k);                                   // 1 = still crumpled, 0 = fp in place
+        vec3 fold=vec3(0.);
+        for(int i=0;i<${NF};i++){float w=tri(dot(fp,F[i].xy)*F[i].z+F[i].w);fold+=A[i]*w;}
+        vec2 anc=vec2(0.,D>0.?-Z.y*.5+I:Z.y*.5-I);                  // the ball sits inside the start edge (on screen)
+        vec3 ball=vec3(anc+(fp-anc)*vec2(.34,.15)*G+fold.xy*G,fold.z*G);
+        vec3 pos=mix(vec3(fp,0.),ball,c);
+        pos.xy+=fold.xy*.12*c*(1.-c)*4.;                            // a little extra crinkle while it opens
+        vPos=pos;vUv=a;vC=c;
+        gl_Position=vec4(pos.x/(C.x*.5),-pos.y/(C.y*.5),-pos.z/2000.,1.);
+      }`;
+    const FS = `#extension GL_OES_standard_derivatives : enable
+      precision highp float;uniform sampler2D T;varying vec2 vUv;varying vec3 vPos;varying float vC;
+      void main(){
+        vec4 col=texture2D(T,vUv);
+        if(col.a<.01)discard;
+        vec3 n=normalize(cross(dFdx(vPos),dFdy(vPos)));
+        if(n.z<0.)n=-n;
+        vec3 L=normalize(vec3(-.45,-.6,.66));
+        float lit=.42+.74*max(dot(n,L),0.)+.18*pow(max(dot(reflect(-L,n),vec3(0.,0.,1.)),0.),12.);
+        if(gl_FrontFacing)col.rgb=mix(col.rgb,vec3(.86*col.a),.85);    // the back of the paper (y is flipped, so the printed side winds clockwise)
+        col.rgb*=mix(1.,lit,min(1.,vC*1.6));
+        gl_FragColor=col;
+      }`;
+    const sh = (t, src) => { const o = gl.createShader(t); gl.shaderSource(o, src); gl.compileShader(o);
+      if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) console.warn('crumple shader:', gl.getShaderInfoLog(o)); return o; };
     const pr = gl.createProgram();
     gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr);
-    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) { cv.remove(); return null; }
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) { console.warn('crumple program:', gl.getProgramInfoLog(pr)); cv.remove(); return null; }
     gl.useProgram(pr);
-    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    // mesh
+    const NX = 30, NY = 72, verts = [], idx = [];
+    for (let j = 0; j <= NY; j++) for (let i = 0; i <= NX; i++) verts.push(i / NX, j / NY);
+    for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) { const q = j * (NX + 1) + i; idx.push(q, q + 1, q + NX + 1, q + 1, q + NX + 2, q + NX + 1); }
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
     const la = gl.getAttribLocation(pr, 'a'); gl.enableVertexAttribArray(la); gl.vertexAttribPointer(la, 2, gl.FLOAT, false, 0, 0);
     const U = (k) => gl.getUniformLocation(pr, k);
-    const uP = U('P'), uD = U('D'), uS = U('S'), uZ = U('Z');
-    gl.uniform1f(uD, dir); gl.uniform1f(uS, seed);
+    const uP = U('P'), uG = U('G'), uZ = U('Z'), uC = U('C');
+    gl.uniform1f(U('D'), dir); gl.uniform1f(U('I'), inset);
+    // creases: random directions, 40–160 px apart, sharp triangle waves; seeded so each receipt crumples its own way
+    let sd = seed * 9301 + 49297; const rnd = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+    const Fv = [], Av = [];
+    for (let i = 0; i < NF; i++) {
+      const an = rnd() * Math.PI * 2, lam = 40 + rnd() * 120;
+      Fv.push(Math.cos(an), Math.sin(an), 1 / lam, rnd());
+      const amp = 26 * (lam / 160) + 10;
+      Av.push((rnd() - .5) * amp * 1.4, (rnd() - .5) * amp * 1.4, (rnd() - .3) * amp * 2.2);
+    }
+    gl.uniform4fv(U('F'), new Float32Array(Fv)); gl.uniform3fv(U('A'), new Float32Array(Av));
+    gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
     let tex = null;
     const upload = () => {
       if (tex || !img.complete || !img.naturalWidth) return !!tex;
@@ -1148,18 +1174,22 @@
         const playing = p > 0 && p < 1 && upload();
         img.style.visibility = p >= 1 || (!playing && p > 0) ? '' : 'hidden';
         cv.style.visibility = playing ? 'visible' : 'hidden';
-        if (soft) soft.style.opacity = (.7 * Math.max(0, Math.min(1, (p - .55) / .45))).toFixed(3);
+        if (soft) soft.style.opacity = (.7 * Math.max(0, Math.min(1, (p - .6) / .4))).toFixed(3);
         if (!playing || Math.abs(p - last) < 1e-4) return;
         last = p;
-        const w = img.offsetWidth, h = img.offsetHeight, k = Math.min(2, (devicePixelRatio || 1) * stageScale);
-        const W = Math.round(w * k), Hh = Math.round(h * k);
+        const w = img.offsetWidth, h = img.offsetHeight, cw = w + 2 * PAD, ch = h + 2 * PAD;
+        const k = Math.min(2, (devicePixelRatio || 1) * stageScale);
+        const W = Math.round(cw * k), Hh = Math.round(ch * k);
         if (cv.width !== W || cv.height !== Hh) { cv.width = W; cv.height = Hh; gl.viewport(0, 0, W, Hh); }
-        gl.uniform1f(uP, p); gl.uniform2f(uZ, w, h);
-        gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        const g = Math.min(1, p / .12), G = 1 - Math.pow(1 - g, 3);          // the ball pops in at the start
+        gl.uniform1f(uP, Math.max(0, (p - .06) / .94)); gl.uniform1f(uG, .25 + .75 * G);
+        gl.uniform2f(uZ, w, h); gl.uniform2f(uC, cw, ch);
+        gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
       },
     };
   }
+
 
   // ---------- timeline ----------
   function build(ch, toss, pull, letters, labels, dxL, dxR, H) {
@@ -1201,7 +1231,7 @@
       .set(H.letters.map(l => l.cell), { autoAlpha: 0 }, 0)
       .set(H.letters.flatMap(l => l.jp), { autoAlpha: 1 }, 0)
       .set(['#fly1', '#fly2'], { opacity: 1, x: 0, rotation: 0 }, 0)
-      .set('#fly1', { y: -36 }, 0).set('#fly2', { y: 36 }, 0)
+      .set(['#fly1', '#fly2'], { y: 0 }, 0)
       .set('#uline', { clipPath: 'inset(-4px 100% -4px 0)' }, 0)
       .set(H.btns.map(b => b.pill), { attr: { 'stroke-dashoffset': 0 } }, 0)
       .set(H.btns.map(b => b.svg), { opacity: 0 }, 0)
@@ -1376,7 +1406,6 @@
     // 2) all the small copy, letter by letter through kanji (top-left first, then down and across)
     const T_SMALL = T_MAIN + .2;
     phase(T_SMALL, 'мелкий текст');
-    H.nav.forEach((n, i) => { n.l.t0 = T_SMALL + i * .1; });
     // hand-written: the left column top to bottom, then the addresses, then the footer
     const hwDur = (o) => Math.max(.55, Math.min(1.5, .3 + .05 * o.n));
     H.hw.forEach((o, i) => {
@@ -1385,6 +1414,8 @@
       o.w0 = base + k * (H.vert.includes(o.lbl) ? .08 : .14);
       o.lbl.t0 = o.w0 + hwDur(o);
     });
+    // nav: written with the brush left to right, item by item
+    H.hwNav.forEach((o, i) => { o.w0 = T_SMALL + i * .14; o.lbl.t0 = o.w0 + hwDur(o); });
 
     // 3) "sorry coffe…" + its brush underline, the kanji at the top are written stroke by stroke,
     //    the pagination squares are drawn in white, then the first one turns green and gets scribbled in
@@ -1413,11 +1444,12 @@
     tl.to(IC, { g: 1, duration: .25, ease: 'power1.out', onUpdate: renderIcons }, T_GREEN);
     scr.forEach((_, i) => tl.to(IC.sc[i], { p: 1, duration: .14, ease: 'power1.in', onUpdate: renderIcons }, T_GREEN + .1 + i * .08));
 
-    // 4) receipts: crumpled paper that unfolds and smooths out — the top one from the top down, the lower one from the
-    //    bottom up (WebGL while it plays; the plain image at rest). Without WebGL: a plain reveal from the same edge.
+    // 4) receipts: each starts as a crumpled ball of paper and unfolds into the flat receipt — the top one from the top
+    //    down, the lower one from the bottom up (WebGL mesh while it plays; the plain image at rest).
+    //    Without WebGL: a plain reveal from the same edge.
     const T_FLY = T_SORRY;
     phase(T_FLY, 'чеки');
-    const R1 = crumple($('#fly1 img:not(.soft)'), 1, 1.3), R2 = crumple($('#fly2 img:not(.soft)'), -1, 4.7);
+    const R1 = crumple($('#fly1 img:not(.soft)'), 1, 1.3, 90), R2 = crumple($('#fly2 img:not(.soft)'), -1, 4.7, 330);   // the lower one runs off the screen: its ball starts where it is visible
     const flyP = { a: 0, b: 0 };
     const drawFly = () => {
       for (const [R, el, p, side] of [[R1, $('#fly1'), flyP.a, 'bottom'], [R2, $('#fly2'), flyP.b, 'top']]) {
@@ -1427,10 +1459,8 @@
       }
     };
     drawFly();
-    tl.to(flyP, { a: 1, duration: 1.45, ease: 'power2.out', onUpdate: drawFly }, T_FLY)
-      .to(flyP, { b: 1, duration: 1.45, ease: 'power2.out', onUpdate: drawFly }, T_FLY + .3)
-      .fromTo('#fly1', { y: -36 }, { y: 0, duration: 1.45, ease: 'power3.out', immediateRender: false }, T_FLY)
-      .fromTo('#fly2', { y: 36 }, { y: 0, duration: 1.45, ease: 'power3.out', immediateRender: false }, T_FLY + .3);
+    tl.to(flyP, { a: 1, duration: 1, ease: 'power2.out', onUpdate: drawFly }, T_FLY)
+      .to(flyP, { b: 1, duration: 1, ease: 'power2.out', onUpdate: drawFly }, T_FLY + .22);
 
     // 5) buttons appear the way they react to hover: a liquid wave rises inside the pill.
     //    SEE CATALOG fills with matcha and stays; ARRANGE DELIVERY fills, then drains and leaves its outline.
@@ -1480,6 +1510,7 @@
       for (const l of H.small) renderScramble(l, now);
       for (const b of H.btns) renderScramble(b.l, now);
       for (const o of H.hw) o.render(now);
+      for (const o of H.hwNav) o.render(now);
       // logo letters at rest: no reel window mask, so the text shadow is never cut by the (now narrow) window
       for (const l of [...letters, ...H.letters]) { const r = now >= l.land; if (r !== l.rest) { l.rest = r; l.cell.classList.toggle('rest', r); } }
       for (const l of H.vert) { const on = now >= l.t0; if (on !== l.plain) { l.plain = on; l.p.classList.toggle('plain', on); } }
