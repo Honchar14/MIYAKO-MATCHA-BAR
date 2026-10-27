@@ -96,7 +96,7 @@ body {
 .hero video.bg { clip-path: inset(0); }
 .hero .shade { inset: 0; background: rgba(0,0,0,.75); }
 /* Figma: Multi noise, size 0.5, density 100%, opacity 30% — static on the main screen */
-.hero .noise { inset: 0; opacity: .3; pointer-events: none; background-size: 512px 512px; mix-blend-mode: plus-lighter; }
+.hero .noise { inset: 0 -260px -260px 0; opacity: .18; pointer-events: none; background-size: 256px 256px; mix-blend-mode: plus-lighter; will-change: transform; image-rendering: pixelated; }
 .vtext { width: 12px; }
 .vtext > span {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg);

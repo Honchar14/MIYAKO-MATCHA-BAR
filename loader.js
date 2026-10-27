@@ -38,15 +38,30 @@
     // (background-position on a full-screen blended layer repainted ~2000×1160 px ten times a second)
     d.style.inset = '-256px'; d.style.willChange = 'transform';
     let t = 0; setInterval(() => { t++; d.style.transform = `translate(${(t * 73) % 256}px, ${(t * 151) % 256}px)`; }, 90);
-    // main screen — Figma "Multi" noise: every pixel (density 100%) a random colour, layer opacity 30%,
-    // added on top of the 75% shade; tone calibrated against the Figma render (same photo patch: mean +14, fine grain)
-    const NV = 96;
-    const n = document.createElement("canvas"); n.width = n.height = 512;
-    const ng = n.getContext('2d'), nd = ng.createImageData(512, 512);
-    // white (monochrome) grain, same strength as the Figma colour noise — the overall tone of the screen is unchanged
+    // main screen — fine white film grain that lives: one grain = one physical screen pixel at any window size and
+    // screen density (the tile is re-sized on resize), softer than the Figma noise (opacity .18 instead of .3), and
+    // it flickers like film ~12×/s by jumping its own composited layer (no repaint of the full-screen layer).
+    const NV = 110, NT = 256;
+    const n = document.createElement("canvas"); n.width = n.height = NT;
+    const ng = n.getContext('2d'), nd = ng.createImageData(NT, NT);
     for (let i = 0; i < nd.data.length; i += 4) { const v = Math.random() * NV; nd.data[i] = nd.data[i+1] = nd.data[i+2] = v; nd.data[i+3] = 255; }
     ng.putImageData(nd, 0, 0);
-    $('#noise').style.backgroundImage = `url(${n.toDataURL()})`;
+    const nz = $('#noise');
+    nz.style.backgroundImage = `url(${n.toDataURL()})`;
+    const devPx = () => stageScale * (devicePixelRatio || 1);          // stage px → physical px
+    const sizeNoise = () => {
+      const t = (NT / devPx()).toFixed(4);
+      nz.style.backgroundSize = `${t}px ${t}px`;
+      nz.style.right = nz.style.bottom = `${-Math.ceil(NT / devPx()) - 2}px`;   // room for a jump of up to one tile
+    };
+    sizeNoise(); addEventListener('resize', sizeNoise);
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setInterval(() => {
+      if (still || document.hidden) return;
+      // jump by a whole number of physical pixels, so the grains stay sharp squares
+      const k = devPx(), j = () => Math.floor(Math.random() * NT) / k;
+      nz.style.transform = `translate(${-j().toFixed(4)}px, ${-j().toFixed(4)}px)`;
+    }, 83);
   })();
 
   // ---------- hero: vertical manifesto + brush icon cluster (from Figma) ----------
