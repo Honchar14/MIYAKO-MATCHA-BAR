@@ -38,30 +38,26 @@
     // (background-position on a full-screen blended layer repainted ~2000×1160 px ten times a second)
     d.style.inset = '-256px'; d.style.willChange = 'transform';
     let t = 0; setInterval(() => { t++; d.style.transform = `translate(${(t * 73) % 256}px, ${(t * 151) % 256}px)`; }, 90);
-    // main screen — fine white film grain that lives: one grain = one physical screen pixel at any window size and
-    // screen density (the tile is re-sized on resize), softer than the Figma noise (opacity .18 instead of .3), and
-    // it flickers like film ~12×/s by jumping its own composited layer (no repaint of the full-screen layer).
+    // main screen — fine white film grain: one grain = one physical screen pixel at any window size and screen
+    // density (the tile is re-sized on resize). Three layers cross-fade in a loop (CSS opacity animation on the
+    // compositor, phases 0/⅓/⅔): the sum of their weights is constant, so the grain "boils" smoothly instead of
+    // jumping. Each layer gets a new random offset only at the moment it is fully transparent.
     const NV = 110, NT = 256;
     const n = document.createElement("canvas"); n.width = n.height = NT;
     const ng = n.getContext('2d'), nd = ng.createImageData(NT, NT);
     for (let i = 0; i < nd.data.length; i += 4) { const v = Math.random() * NV; nd.data[i] = nd.data[i+1] = nd.data[i+2] = v; nd.data[i+3] = 255; }
     ng.putImageData(nd, 0, 0);
-    const nz = $('#noise');
-    nz.style.backgroundImage = `url(${n.toDataURL()})`;
+    const layers = [...document.querySelectorAll('.hero .noise')], url = `url(${n.toDataURL()})`;
     const devPx = () => stageScale * (devicePixelRatio || 1);          // stage px → physical px
+    // shift by a whole number of physical pixels, so the grains stay sharp squares
+    const jump = (el) => { const k = devPx(), j = () => (Math.floor(Math.random() * NT) / k).toFixed(4);
+      el.style.transform = `translate(${-j()}px, ${-j()}px)`; };
     const sizeNoise = () => {
-      const t = (NT / devPx()).toFixed(4);
-      nz.style.backgroundSize = `${t}px ${t}px`;
-      nz.style.right = nz.style.bottom = `${-Math.ceil(NT / devPx()) - 2}px`;   // room for a jump of up to one tile
+      const t = (NT / devPx()).toFixed(4), pad = `${-Math.ceil(NT / devPx()) - 2}px`;   // room for a shift of up to one tile
+      layers.forEach(el => { el.style.backgroundSize = `${t}px ${t}px`; el.style.right = el.style.bottom = pad; jump(el); });
     };
+    layers.forEach(el => { el.style.backgroundImage = url; el.addEventListener('animationiteration', () => jump(el)); });
     sizeNoise(); addEventListener('resize', sizeNoise);
-    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    setInterval(() => {
-      if (still || document.hidden) return;
-      // jump by a whole number of physical pixels, so the grains stay sharp squares
-      const k = devPx(), j = () => Math.floor(Math.random() * NT) / k;
-      nz.style.transform = `translate(${-j().toFixed(4)}px, ${-j().toFixed(4)}px)`;
-    }, 83);
   })();
 
   // ---------- hero: vertical manifesto + brush icon cluster (from Figma) ----------

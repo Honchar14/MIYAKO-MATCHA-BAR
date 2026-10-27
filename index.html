@@ -96,7 +96,14 @@ body {
 .hero video.bg { clip-path: inset(0); }
 .hero .shade { inset: 0; background: rgba(0,0,0,.75); }
 /* Figma: Multi noise, size 0.5, density 100%, opacity 30% — static on the main screen */
-.hero .noise { inset: 0 -260px -260px 0; opacity: .18; pointer-events: none; background-size: 256px 256px; mix-blend-mode: plus-lighter; will-change: transform; image-rendering: pixelated; }
+.hero .noise { inset: 0 -260px -260px 0; opacity: 0; pointer-events: none; background-size: 256px 256px; mix-blend-mode: plus-lighter; will-change: transform, opacity; image-rendering: pixelated;
+  animation: grainBreath 1.2s ease-in-out infinite; }
+/* three grain layers dissolve into each other (phases 0, 1/3, 2/3): brightness and contrast stay constant,
+   the texture "boils" smoothly instead of jumping; a layer is moved only while it is fully transparent */
+.hero .noise.n2 { animation-delay: -.4s; }
+.hero .noise.n3 { animation-delay: -.8s; }
+@keyframes grainBreath { 0%, 100% { opacity: 0; } 50% { opacity: .16; } }
+@media (prefers-reduced-motion: reduce) { .hero .noise { animation: none; } .hero .noise.n1 { opacity: .18; } }
 .vtext { width: 12px; }
 .vtext > span {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg);
@@ -183,7 +190,7 @@ body {
           <source src="assets/bar-loop.mp4" type="video/mp4">
         </video>
         <div class="abs shade"></div>
-        <div class="abs noise" id="noise"></div>
+        <div class="abs noise n1" id="noise"></div><div class="abs noise n2"></div><div class="abs noise n3"></div>
 
         <div class="abs flyer" id="fly1" style="left:1576px;top:-35px;width:327px;height:807px">
           <img class="soft" src="assets/flyer-blur.webp" alt="" style="left:3px;top:2px">
