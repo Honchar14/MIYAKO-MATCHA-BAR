@@ -29,12 +29,12 @@ body {
 
 /* ---------- stage ---------- */
 .viewport {
-  flex: 1; min-height: 0; display: grid; place-items: center;
+  flex: 1; min-height: 0; position: relative;
   padding-block: 16px;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
-.frame { position: relative; overflow: hidden; clip-path: inset(0); background: var(--ink); }
+.frame { position: absolute; overflow: hidden; clip-path: inset(0); background: var(--ink); }
 .stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; }
 .abs { position: absolute; }
 .trim { text-box: trim-both cap alphabetic; }
@@ -89,14 +89,12 @@ body {
 .progress { left: 30px; top: 1037px; width: 1860px; height: 13px; background: var(--matcha); transform-origin: 0 50%; }
 
 /* hero */
-/* overflow clips the photo (it is 8px wider than the screen on each side), so photo, dark shade and noise always move as one sheet */
+/* overflow keeps photo/video and the dark shade together as one sheet */
 .hero { position: absolute; inset: 0; background: var(--night); overflow: hidden; }
 /* photo / video exactly the size of the screen: nothing overhangs the edge, so no layer can stick out past the shade */
 .hero .bg { left: 0; top: 0; width: 1920px; height: 1080px; object-fit: cover; }
 .hero video.bg { clip-path: inset(0); }
 .hero .shade { inset: 0; background: rgba(0,0,0,.75); }
-/* film grain (as on voiden-london): 512 px grey-noise tile, normal blend, 6.5 %, jumps 12×/s (see loader.js) */
-.hero .noise { left: -256px; top: -256px; width: 2432px; height: 1592px; opacity: .065; pointer-events: none; background-size: 512px 512px; will-change: transform; }
 .vtext { width: 12px; }
 .vtext > span {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg);
@@ -180,13 +178,12 @@ body {
       <!-- HERO (main screen being pulled in) -->
       <section class="hero" id="hero" aria-label="Первый экран">
         <img class="abs bg" src="assets/bar-poster.jpg" alt="Интерьер MIYAKO matcha bar">
-        <!-- living bar: looped time-lapse of guests and staff in motion blur, under the shade + noise -->
+        <!-- living bar: looped time-lapse of guests and staff in motion blur, under the shade -->
         <video class="abs bg" id="bgv" muted loop playsinline autoplay preload="auto" poster="assets/bar-poster.jpg" aria-hidden="true">
           <source src="assets/bar-loop.webm" type="video/webm">
           <source src="assets/bar-loop.mp4" type="video/mp4">
         </video>
         <div class="abs shade"></div>
-        <div class="abs noise" id="noise"></div>
 
         <div class="abs flyer" id="fly1" style="left:1576px;top:-35px;width:327px;height:807px">
           <img class="soft" src="assets/flyer-blur.webp" alt="" style="left:3px;top:2px">

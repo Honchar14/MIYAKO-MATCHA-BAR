@@ -18,20 +18,28 @@
     const r = viewport.getBoundingClientRect(), cs = getComputedStyle(viewport);
     const w = r.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const h = r.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-    const s = Math.max(0.05, Math.min(w / 1920, h / 1080));
-    frame.style.width = 1920 * s + 'px'; frame.style.height = 1080 * s + 'px';
+    const dpr = devicePixelRatio || 1;
+    const s0 = Math.max(0.05, Math.min(w / 1920, h / 1080));
+    // the frame is a whole number of device pixels on every side — a fractional width/height left the last row or
+    // column of the screen half-covered (a 1 px seam along the edge). The stage is scaled to *cover* that box, so the
+    // shaded background always reaches the very edge; the frame's overflow trims the sub-pixel excess.
+    const fw = Math.max(1, Math.floor(1920 * s0 * dpr)) / dpr, fh = Math.max(1, Math.floor(1080 * s0 * dpr)) / dpr;
+    const s = Math.max(fw / 1920, fh / 1080);
+    frame.style.width = fw + 'px'; frame.style.height = fh + 'px';
     stage.style.transform = `scale(${s})`;
     stageScale = s;
-    // the frame is centred, so it can land between device pixels; every composited layer inside it (all the text over
-    // the video) was then resampled by the compositor — soft, heavier, "not vector" type. Snap it to whole device pixels.
-    frame.style.translate = '';
-    const fr = frame.getBoundingClientRect(), dpr = devicePixelRatio || 1;
-    const snap = (v) => (Math.round(v * dpr) - v * dpr) / dpr;
-    frame.style.translate = `${snap(fr.left).toFixed(4)}px ${snap(fr.top).toFixed(4)}px`;
+    // the frame is placed by hand at whole device pixels (not centred by the grid): a centred box could land between
+    // device pixels — the compositor then resampled the text layers (soft type) and the browser rounded the edge
+    // differently from the layout, leaving a 1 px seam of the page background along one side of the screen.
+    const vr = viewport.getBoundingClientRect();
+    const pl = parseFloat(cs.paddingLeft), pt = parseFloat(cs.paddingTop);
+    const dev = (v) => Math.round(v * dpr) / dpr;
+    const x = dev(vr.left + pl + (w - fw) / 2) - vr.left, y = dev(vr.top + pt + (h - fh) / 2) - vr.top;
+    frame.style.left = x + 'px'; frame.style.top = y + 'px';
   }
   addEventListener('resize', fit); fit();
 
-  // ---------- film grain: loader and main screen ----------
+  // ---------- film grain: loader only (the main screen is just the photo/video under the dark shade) ----------
   (function grain() {
     const c = document.createElement('canvas'); c.width = c.height = 256;
     const g = c.getContext('2d'), img = g.createImageData(256, 256);
@@ -44,20 +52,6 @@
     // (background-position on a full-screen blended layer repainted ~2000×1160 px ten times a second)
     d.style.inset = '-256px'; d.style.willChange = 'transform';
     let t = 0; setInterval(() => { t++; d.style.transform = `translate(${(t * 73) % 256}px, ${(t * 151) % 256}px)`; }, 90);
-    // main screen — film grain like voiden-london.vercel.app: one 512 px tile of full-range grey noise (0–255),
-    // normal blending at 6.5 % opacity, on the background only (under the text, character and receipts). It jumps to
-    // a random whole-pixel offset 12 times a second — moving its own GPU layer, nothing is repainted.
-    const n = document.createElement('canvas'); n.width = n.height = 512;
-    const ng = n.getContext('2d'), nd = ng.createImageData(512, 512);
-    for (let i = 0; i < nd.data.length; i += 4) { const v = Math.random() * 255; nd.data[i] = nd.data[i+1] = nd.data[i+2] = v; nd.data[i+3] = 255; }
-    ng.putImageData(nd, 0, 0);
-    const nz = $('#noise');
-    nz.style.backgroundImage = `url(${n.toDataURL()})`;
-    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    setInterval(() => {
-      if (still || document.hidden) return;
-      nz.style.transform = `translate3d(${(Math.random() * 256) | 0}px, ${(Math.random() * 256) | 0}px, 0)`;
-    }, 83);
   })();
 
   // ---------- hero: vertical manifesto + brush icon cluster (from Figma) ----------
@@ -694,7 +688,7 @@
     d.ink.E.set(0, 1); d.ink.J.set(0, 1); d.ink.svg.style.display = 'none';
   }
 
-  // ---------- living background: muted looped video under the shade + noise (photo stays as the poster) ----------
+  // ---------- living background: muted looped video under the shade (photo stays as the poster) ----------
   (function bgVideo() {
     const v = $('#bgv'); if (!v) return;
     const go = () => v.play().catch(() => {});
@@ -1264,7 +1258,7 @@
       .to(hero, { x: 0, duration: .55, ease: expoOut }, T_BURST)
       .fromTo('#mbHeroBlur', { attr: { stdDeviation: '90 0' } }, { attr: { stdDeviation: '0 0' }, duration: .55, ease: 'power3.out' }, T_BURST)
       .set(hero, { filter: 'none', willChange: 'auto' }, T_BURST + .57)
-      // while the screen is dragged and flies in, the still frame (one layer with the shade + noise) is shown;
+      // while the screen is dragged and flies in, the still frame (one layer with the shade) is shown;
       // the live video fades in only once the screen has settled — nothing can slide apart
       .to('#bgv', { autoAlpha: 1, duration: .9, ease: 'power1.inOut' }, T_BURST + .65);
     // no pause after the yank: the moment the screen is out he springs from the rope pose straight into
